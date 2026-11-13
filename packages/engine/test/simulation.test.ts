@@ -93,23 +93,16 @@ describe('live adjustments', () => {
     expect(r.nights.every((n) => n.liveEvents === 0)).toBe(true);
   });
 
-  it('relieve hot flashes best with a personal fan', () => {
+  it('answer hot flashes with bursts of cooling when menopause mode is on', () => {
     const flashes = truth({ hotFlashesPerNight: 2.5, feedbackRate: 0, overrideRate: 0 });
-    const quality = (menopauseMode: boolean, fan: boolean): number =>
+    const events = (menopauseMode: boolean): number =>
       avg(
-        seeds(6).map((seed) => {
-          const r = runNights({
-            sleepers: [solo(flashes, { realtime: true, fan, options: { menopauseMode, explore: false } })],
-            nights: 14,
-            startDate: '2026-06-01',
-            seed,
-          });
-          return qualityOver(r, 1, 14);
+        seeds(4).map((seed) => {
+          const r = runNights({ sleepers: [solo(flashes, { realtime: true, options: { menopauseMode, explore: false } })], nights: 14, startDate: '2026-06-01', seed });
+          return avg(r.nights.map((n) => n.liveEvents));
         }),
       );
-    const off = quality(false, false);
-    const withFan = quality(true, true);
-    expect(withFan).toBeGreaterThan(off + 0.8);
+    expect(events(true)).toBeGreaterThan(events(false) + 2);
   });
 });
 

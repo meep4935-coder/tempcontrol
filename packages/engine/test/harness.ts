@@ -14,13 +14,10 @@ import {
   DEFAULT_LIMITS,
   DEFAULT_OPTIONS,
   estimateIdeal,
-  FAN_COOLING_PER_LEVEL_C,
-  fanLevel,
   INFERRED_SIGNAL_NOISE_C,
   learnFromNight,
   liveOffset,
   liveStep,
-  personalCooling,
   phaseAt,
   roomSegmentAt,
   seasonIndex,
@@ -52,8 +49,6 @@ export interface HarnessSleeper {
   bedtime: string;
   wakeTime: string;
   realtime?: boolean;
-  /** Has a personal bedside fan the platform can switch. */
-  fan?: boolean;
   options?: Partial<SleeperOptions>;
   limits?: ComfortLimits;
   model?: ThermalModelState;
@@ -156,21 +151,19 @@ export function runNights(opts: HarnessOptions): HarnessResult {
     });
 
     let live = createLiveState();
-    const cooling = personalCooling(roomPlan);
     const nudged = new Set<string>();
     let hold: Hold | null = null;
     let liveEvents = 0;
     let overrides = 0;
     let kWh = 0;
-    const samples: { t: number; roomTempC: number; setpointC: number | null; fans: Record<string, number> }[] = [];
+    const samples: { t: number; roomTempC: number; setpointC: number | null }[] = [];
     const prefs = new Map<string, PreferenceEvent[]>(opts.sleepers.map((x) => [x.id, []]));
 
     while (!world.done) {
       const decision = decideSetpoint({ t: world.t, plan: roomPlan, hold, liveOffsetC: liveOffset(live, world.t) });
-      const fans = Object.fromEntries(opts.sleepers.filter((x) => x.fan).map((x) => [x.id, fanLevel(x.id, world.t, live, cooling)]));
-      const reading = world.advance({ setpointC: decision.targetC, fans });
+      const reading = world.advance({ setpointC: decision.targetC });
       kWh += reading.kWh;
-      samples.push({ t: reading.t, roomTempC: reading.roomTempC, setpointC: decision.targetC, fans });
+      samples.push({ t: reading.t, roomTempC: reading.roomTempC, setpointC: decision.targetC });
 
       for (const o of reading.overrides) {
         hold = { targetC: o.targetC, source: 'device', startMs: reading.t, untilMs: null, sleeperId: o.sleeperId };
@@ -190,19 +183,18 @@ export function runNights(opts: HarnessOptions): HarnessResult {
             vitals: reading.vitals[p.sleeper.id] ?? null,
             inBed: reading.inBed[p.sleeper.id] ?? false,
             menopauseMode: p.options.menopauseMode,
-            hasFan: p.sleeper.fan,
           })),
         });
         live = step.state;
         liveEvents += step.events.length;
         // The first time a sleeper's body asks for a change is read as a weak comfort signal.
         for (const e of step.events) {
-          if (e.reason === 'hotFlash' || e.reason === 'hotFlashOver' || !e.sleeperId || nudged.has(e.sleeperId)) continue;
+          if ((e.reason !== 'restlessWarm' && e.reason !== 'restlessCold') || !e.sleeperId || nudged.has(e.sleeperId)) continue;
           nudged.add(e.sleeperId);
           prefs.get(e.sleeperId)!.push({
             kind: e.reason === 'restlessCold' ? 'tooCold' : 'tooHot',
             t: e.t,
-            tempC: reading.roomTempC - FAN_COOLING_PER_LEVEL_C * (fans[e.sleeperId] ?? 0),
+            tempC: reading.roomTempC,
             noiseC: INFERRED_SIGNAL_NOISE_C,
           });
         }
@@ -227,8 +219,7 @@ export function runNights(opts: HarnessOptions): HarnessResult {
       const result = results[p.sleeper.id]!;
       const events = [...prefs.get(p.sleeper.id)!];
       if (result.feedback) events.push({ kind: result.feedback });
-      const felt = samples.map((x) => ({ t: x.t, roomTempC: x.roomTempC, fanLevel: x.fans[p.sleeper.id] ?? 0 }));
-      const learned = learnFromNight(p.model, { plan: p.plan, samples: felt, metrics: result.metrics, context: p.context, preferences: events });
+      const learned = learnFromNight(p.model, { plan: p.plan, samples, metrics: result.metrics, context: p.context, preferences: events });
       models.set(p.sleeper.id, learned.model);
       const estimate = estimateIdeal(learned.model, s);
       night.sleepers[p.sleeper.id] = {

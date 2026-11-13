@@ -3,7 +3,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { DeviceKind, Equipment, HoldDto, NightDetailDto, NightSummaryDto, PresetDto } from '@tempcontrol/contracts';
+import type { Equipment, HoldDto, NightDetailDto, NightSummaryDto, PresetDto } from '@tempcontrol/contracts';
 import type { ComfortLimits, Locale, RoomResponse, SleeperOptions, ThermalModelState, Units } from '@tempcontrol/engine';
 import type { SleeperTruth } from '@tempcontrol/engine/sim';
 import type { Db } from './db';
@@ -35,7 +35,6 @@ export interface SleeperRecord {
   limits: ComfortLimits;
   options: SleeperOptions;
   cycle: { lastPeriodStart: string | null; lengthDays: number };
-  aiAssistant: boolean;
   wearableBrand: string;
   model: ThermalModelState;
   tonight: { alcohol: boolean; highStrain: boolean; illness: boolean };
@@ -49,8 +48,10 @@ export interface RoomRecord {
   householdId: string;
   name: string;
   response: RoomResponse;
-  /** Last known conditions. */
-  climate: { tempC: number; humidityPct: number };
+  /** Last known conditions. Humidity is null unless the thermostat reports it. */
+  climate: { tempC: number; humidityPct: number | null };
+  /** The user's answer to the morning recommendation for a given date. */
+  recommendation: { date: string; status: 'applied' | 'kept' } | null;
   /** A manual temperature set outside a running night; takes effect when the next one starts. */
   pendingHold: HoldDto | null;
   activePresetId: string | null;
@@ -59,11 +60,10 @@ export interface RoomRecord {
 export interface DeviceRecord {
   id: string;
   roomId: string;
-  kind: DeviceKind;
   brand: string;
   name: string;
-  equipment?: Equipment;
-  sleeperId?: string;
+  equipment: Equipment;
+  reportsHumidity: boolean;
 }
 
 export type PresetRecord = PresetDto & { householdId: string };

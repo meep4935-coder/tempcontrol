@@ -1,5 +1,6 @@
 /**
- * The devices the platform is designed to work with.
+ * The devices the platform is designed to work with: a wearable per sleeper
+ * and one smart thermostat or smart AC control per bedroom. Nothing else is assumed.
  *
  * In this build every one of them is simulated: picking "Nest" or "Oura"
  * creates a simulated device with that brand's characteristics. Real
@@ -23,14 +24,8 @@ export const WEARABLES: WearableBrand[] = [
   { id: 'amazfit', name: 'Amazfit', maker: 'Zepp Health', delivery: 'morning', connection: 'cloud-api' },
 ];
 
-const home = (id: string, name: string): ClimateBrand => ({ id, name, kinds: ['thermostat'], equipment: ['central'], scope: 'home' });
-const room = (id: string, name: string, equipment: ClimateBrand['equipment'], kinds: ClimateBrand['kinds'] = ['thermostat']): ClimateBrand => ({
-  id,
-  name,
-  kinds,
-  equipment,
-  scope: 'room',
-});
+const home = (id: string, name: string): ClimateBrand => ({ id, name, equipment: ['central'], scope: 'home' });
+const room = (id: string, name: string, equipment: ClimateBrand['equipment']): ClimateBrand => ({ id, name, equipment, scope: 'room' });
 
 export const CLIMATE_BRANDS: ClimateBrand[] = [
   // Whole-home thermostats.
@@ -53,12 +48,8 @@ export const CLIMATE_BRANDS: ClimateBrand[] = [
   room('cielo', 'Cielo Breez', ['miniSplit', 'windowAc']),
   room('aqara', 'Aqara', ['miniSplit', 'windowAc']),
   room('eve', 'Eve', ['baseboard']),
-  room('meross', 'Meross', ['baseboard', 'windowAc'], ['thermostat', 'fan', 'humidifier']),
-  // Fans, humidifiers and dehumidifiers, usually switched through a smart plug or the maker's app.
-  room('smart-plug', 'Smart plug', [], ['fan', 'humidifier', 'dehumidifier']),
-  room('dyson', 'Dyson', [], ['fan', 'humidifier']),
-  room('levoit', 'Levoit', [], ['humidifier']),
-  room('midea', 'Midea', ['windowAc'], ['thermostat', 'dehumidifier']),
+  room('meross', 'Meross', ['baseboard', 'windowAc']),
+  room('midea', 'Midea', ['windowAc']),
 ];
 
 export const CATALOG: Catalog = { wearables: WEARABLES, climate: CLIMATE_BRANDS };

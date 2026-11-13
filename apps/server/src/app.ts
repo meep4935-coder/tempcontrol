@@ -5,12 +5,13 @@ import fastifyStatic from '@fastify/static';
 import type {
   AdvanceResponse,
   ApiError,
-  AssistantEvent,
+  AssistantReplyDto,
   HoldDto,
   LiveUpdateDto,
   NightDetailDto,
   NightSummaryDto,
   PlanDto,
+  RecommendationDto,
   StateDto,
   VoiceResponse,
 } from '@tempcontrol/contracts';
@@ -28,11 +29,12 @@ import {
 import { CLIMATES } from '@tempcontrol/engine/sim';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { z, ZodError } from 'zod';
-import { aiConfigured, answer } from './assistant';
+import { answer } from './assistant';
 import { CLIMATE_BRANDS, WEARABLES } from './catalog';
 import { SCENARIOS } from './demo';
 import { LiveManager } from './live';
 import { outlookFor, planNight, RequestError, simulateNights } from './night';
+import { answerRecommendation, buildRecommendation } from './recommendation';
 import { createDemo } from './setup';
 import { newId, type Store } from './store';
 import { nightRecords, stateDto } from './views';
@@ -55,7 +57,6 @@ const sleeperPatch = z
       .object({ explore: z.boolean(), cycleTracking: z.boolean(), menopauseMode: z.boolean(), recoveryAware: z.boolean() })
       .partial(),
     cycle: z.object({ lastPeriodStart: day.nullable(), lengthDays: z.number().int().min(21).max(40).optional() }),
-    aiAssistant: z.boolean(),
     tonight: z.object({ alcohol: z.boolean(), highStrain: z.boolean(), illness: z.boolean() }).partial(),
     wearableBrand: z.string().refine((id) => WEARABLES.some((w) => w.id === id), 'Unknown wearable'),
   })
@@ -85,11 +86,10 @@ const presetBody = z
 
 const deviceBody = z
   .object({
-    kind: z.enum(['thermostat', 'fan', 'humidifier', 'dehumidifier']),
     brand: z.string().refine((id) => CLIMATE_BRANDS.some((b) => b.id === id), 'Unknown brand'),
     name: z.string().trim().min(1).max(60).optional(),
     equipment: z.enum(['central', 'baseboard', 'miniSplit', 'windowAc']).optional(),
-    sleeperId: z.string().optional(),
+    reportsHumidity: z.boolean().optional(),
   })
   .strict();
 
@@ -101,13 +101,8 @@ const feedbackBody = z.object({ nightId: z.string(), sleeperId: z.string(), kind
 const voiceBody = z.object({ text: z.string().trim().min(1).max(300), sleeperId: z.string() }).strict();
 const napBody = z.object({ sleeperId: z.string(), minutes: z.number().int().min(10).max(180) }).strict();
 const jetLagBody = z.object({ shiftHours: z.number().min(-12).max(12), arrivalDate: day, prepareNights: z.number().int().min(0).max(5).optional() }).strict();
-const assistantBody = z
-  .object({
-    sleeperId: z.string(),
-    message: z.string().trim().min(1).max(2000),
-    history: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().max(8000) })).max(40).optional(),
-  })
-  .strict();
+const assistantBody = z.object({ sleeperId: z.string(), message: z.string().trim().min(1).max(2000) }).strict();
+const recommendationBody = z.object({ action: z.enum(['apply', 'keep']) }).strict();
 
 export interface AppOptions {
   store: Store;
@@ -135,7 +130,7 @@ export function buildApp({ store, webRoot, logger = false }: AppOptions): Fastif
     if (!r) throw new RequestError(404, 'not_found', 'Room not found.');
     return r;
   };
-  const state = (): StateDto => stateDto(store, live.dto(), aiConfigured());
+  const state = (): StateDto => stateDto(store, live.dto());
   /** Settings that feed tonight's plan cannot change under a night that is already running. */
   const requireIdle = (): void => {
     if (live.running) throw new RequestError(409, 'live_running', 'A night is playing. End it first.');
@@ -268,27 +263,34 @@ export function buildApp({ store, webRoot, logger = false }: AppOptions): Fastif
     return reply.status(204).send();
   });
 
-  /** A fixed-temperature preset becomes a manual hold; a curve preset replaces the algorithm's temperatures from the next plan. */
+  /** Make a preset the room's standing setting: it replaces the automatic schedule every night until cleared. */
   app.post<{ Params: { id: string }; Body: unknown }>('/api/presets/:id/activate', async (req): Promise<StateDto> => {
+    requireIdle();
     const preset = store.preset(req.params.id);
     if (!preset) throw new RequestError(404, 'not_found', 'Preset not found.');
-    const { roomId, sleeperId } = z.object({ roomId: z.string(), sleeperId: z.string().optional() }).strict().parse(req.body);
-    const room = roomOr404(roomId);
-    if (preset.kind === 'hold' && preset.targetC !== undefined) {
-      const input = { targetC: settle(preset.targetC, HARD_LIMITS), minutes: null, source: 'preset' as const, sleeperId, presetName: preset.name };
-      const playing = live.runnerFor(room.id);
-      if (playing) playing.setHold(input);
-      else store.saveRoom({ ...room, pendingHold: input });
-    } else {
-      requireIdle();
-      store.saveRoom({ ...room, activePresetId: preset.id });
-    }
+    const { roomId } = z.object({ roomId: z.string() }).strict().parse(req.body);
+    store.saveRoom({ ...roomOr404(roomId), activePresetId: preset.id });
     return state();
   });
 
+  /** Back to the automatic (recommended) schedule. */
   app.delete<{ Params: { roomId: string } }>('/api/rooms/:roomId/preset', async (req): Promise<StateDto> => {
     requireIdle();
     store.saveRoom({ ...roomOr404(req.params.roomId), activePresetId: null });
+    return state();
+  });
+
+  /* --------------------------------------------------------- recommendation */
+
+  app.get<{ Params: { roomId: string } }>('/api/rooms/:roomId/recommendation', async (req): Promise<RecommendationDto> =>
+    buildRecommendation(store, roomOr404(req.params.roomId).id),
+  );
+
+  /** Apply the recommended (automatic) setting, or keep the current preset. */
+  app.post<{ Params: { roomId: string } }>('/api/rooms/:roomId/recommendation', async (req): Promise<StateDto> => {
+    requireIdle();
+    const { action } = recommendationBody.parse(req.body);
+    answerRecommendation(store, roomOr404(req.params.roomId).id, action);
     return state();
   });
 
@@ -344,29 +346,21 @@ export function buildApp({ store, webRoot, logger = false }: AppOptions): Fastif
     return state();
   });
 
+  /** Connect the room's thermostat. A room has exactly one. */
   app.post<{ Params: { roomId: string } }>('/api/rooms/:roomId/devices', async (req): Promise<StateDto> => {
     requireIdle();
     const room = roomOr404(req.params.roomId);
     const body = deviceBody.parse(req.body);
     const brand = CLIMATE_BRANDS.find((b) => b.id === body.brand)!;
-    if (!brand.kinds.includes(body.kind)) throw new RequestError(400, 'invalid_request', `${brand.name} does not make that kind of device.`);
-    const existing = store.devices(room.id);
-    if (body.kind === 'thermostat') {
-      if (existing.some((d) => d.kind === 'thermostat')) throw new RequestError(409, 'has_thermostat', 'This room already has a thermostat. Remove it first.');
-      if (body.equipment && !brand.equipment.includes(body.equipment)) throw new RequestError(400, 'invalid_request', `${brand.name} does not control that equipment.`);
-    }
-    if (body.kind === 'fan') {
-      if (!body.sleeperId || sleeperOr404(body.sleeperId).roomId !== room.id) throw new RequestError(400, 'invalid_request', 'A fan needs a sleeper from this room.');
-      if (existing.some((d) => d.kind === 'fan' && d.sleeperId === body.sleeperId)) throw new RequestError(409, 'has_fan', 'That sleeper already has a fan.');
-    }
+    if (store.devices(room.id).length > 0) throw new RequestError(409, 'has_thermostat', 'This room already has a thermostat. Remove it first.');
+    if (body.equipment && !brand.equipment.includes(body.equipment)) throw new RequestError(400, 'invalid_request', `${brand.name} does not control that equipment.`);
     store.saveDevice({
       id: newId('dev'),
       roomId: room.id,
-      kind: body.kind,
       brand: brand.id,
       name: body.name ?? brand.name,
-      equipment: body.kind === 'thermostat' ? (body.equipment ?? brand.equipment[0] ?? 'central') : undefined,
-      sleeperId: body.kind === 'fan' ? body.sleeperId : undefined,
+      equipment: body.equipment ?? brand.equipment[0] ?? 'central',
+      reportsHumidity: body.reportsHumidity ?? false,
     });
     return state();
   });
@@ -410,22 +404,7 @@ export function buildApp({ store, webRoot, logger = false }: AppOptions): Fastif
 
   /* -------------------------------------------------------------- assistant */
 
-  app.post('/api/assistant', async (req, reply) => {
-    const body = assistantBody.parse(req.body);
-    sleeperOr404(body.sleeperId);
-
-    reply.hijack();
-    reply.raw.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
-    const send = (event: AssistantEvent): void => void reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
-    try {
-      for await (const event of answer(store, body)) send(event);
-    } catch (err) {
-      app.log.error(err);
-      send({ type: 'error', message: 'The assistant could not answer.' });
-    } finally {
-      reply.raw.end();
-    }
-  });
+  app.post('/api/assistant', async (req): Promise<AssistantReplyDto> => answer(store, assistantBody.parse(req.body)));
 
   /* ------------------------------------------------------------- dashboard */
 

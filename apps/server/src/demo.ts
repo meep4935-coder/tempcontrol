@@ -4,7 +4,7 @@
  * bedroom.
  */
 
-import type { DeviceKind, Equipment } from '@tempcontrol/contracts';
+import type { Equipment } from '@tempcontrol/contracts';
 import {
   addDays,
   createModel,
@@ -31,7 +31,6 @@ interface ScenarioSleeper {
   /** Days since the last period started, for sleepers who track their cycle. */
   cycleDay?: number;
   truth: Partial<SleeperTruth>;
-  fan?: boolean;
 }
 
 interface Scenario {
@@ -43,8 +42,7 @@ interface Scenario {
   tariffId: string;
   energy: boolean;
   roomName: string;
-  thermostat: { brand: string; equipment: Equipment; name: string };
-  extras: { kind: DeviceKind; brand: string; name: string }[];
+  thermostat: { brand: string; equipment: Equipment; name: string; reportsHumidity: boolean };
   sleepers: ScenarioSleeper[];
 }
 
@@ -61,8 +59,7 @@ export const SCENARIOS: Scenario[] = [
     tariffId: 'qc-flex-d',
     energy: true,
     roomName: 'Bedroom',
-    thermostat: { brand: 'mysa', equipment: 'miniSplit', name: 'Mysa (mini-split)' },
-    extras: [{ kind: 'humidifier', brand: 'levoit', name: 'Levoit humidifier' }],
+    thermostat: { brand: 'mysa', equipment: 'miniSplit', name: 'Mysa (mini-split)', reportsHumidity: true },
     sleepers: [
       {
         name: 'Camille',
@@ -74,7 +71,6 @@ export const SCENARIOS: Scenario[] = [
         options: { cycleTracking: true },
         cycleDay: 17,
         truth: { idealCoreC: 17.5, sensitivity: 1.2, feedbackRate: 0.5, overrideRate: 0.2 },
-        fan: true,
       },
       {
         name: 'Alex',
@@ -99,8 +95,7 @@ export const SCENARIOS: Scenario[] = [
     tariffId: 'on-tou',
     energy: true,
     roomName: 'Bedroom',
-    thermostat: { brand: 'nest', equipment: 'central', name: 'Nest thermostat' },
-    extras: [],
+    thermostat: { brand: 'nest', equipment: 'central', name: 'Nest thermostat', reportsHumidity: true },
     sleepers: [
       {
         name: 'Sam',
@@ -117,16 +112,15 @@ export const SCENARIOS: Scenario[] = [
     id: 'night-sweats',
     name: { en: 'Night sweats in Ottawa', fr: 'Sueurs nocturnes à Ottawa' },
     description: {
-      en: 'A sleeper with frequent hot flashes, menopause mode switched on, a live watch and a bedside fan that answers within seconds.',
-      fr: 'Une personne aux bouffées de chaleur fréquentes : mode ménopause activé, montre en direct et ventilateur de chevet qui réagit en quelques secondes.',
+      en: 'A sleeper with frequent hot flashes, menopause mode switched on and a live watch, on a thermostat that does not report humidity.',
+      fr: "Une personne aux bouffées de chaleur fréquentes : mode ménopause activé et montre en direct, avec un thermostat qui ne mesure pas l'humidité.",
     },
     household: 'Ottawa',
     climateId: 'ottawa',
     tariffId: 'on-ulo',
     energy: true,
     roomName: 'Bedroom',
-    thermostat: { brand: 'ecobee', equipment: 'central', name: 'ecobee thermostat' },
-    extras: [],
+    thermostat: { brand: 'ecobee', equipment: 'central', name: 'ecobee thermostat', reportsHumidity: false },
     sleepers: [
       {
         name: 'Dominique',
@@ -137,7 +131,6 @@ export const SCENARIOS: Scenario[] = [
         wearableBrand: 'apple-watch',
         options: { menopauseMode: true },
         truth: { idealCoreC: 17.5, sensitivity: 1.1, hotFlashesPerNight: 2.5, feedbackRate: 0.4, overrideRate: 0.1 },
-        fan: true,
       },
     ],
   },
@@ -176,12 +169,12 @@ export function seedDemo(store: Store, scenarioId: string | undefined, opts: { d
       householdId,
       name: sc.roomName,
       response: {},
-      climate: { tempC: 21, humidityPct: 40 },
+      climate: { tempC: 21, humidityPct: null },
       pendingHold: null,
       activePresetId: null,
+      recommendation: null,
     });
-    store.saveDevice({ id: newId('dev'), roomId, kind: 'thermostat', brand: sc.thermostat.brand, name: sc.thermostat.name, equipment: sc.thermostat.equipment });
-    for (const extra of sc.extras) store.saveDevice({ id: newId('dev'), roomId, kind: extra.kind, brand: extra.brand, name: extra.name });
+    store.saveDevice({ id: newId('dev'), roomId, ...sc.thermostat });
 
     for (const s of sc.sleepers) {
       const sleeper: SleeperRecord = {
@@ -197,8 +190,6 @@ export function seedDemo(store: Store, scenarioId: string | undefined, opts: { d
         limits: DEFAULT_LIMITS,
         options: { ...DEFAULT_OPTIONS, ...s.options },
         cycle: { lastPeriodStart: s.cycleDay === undefined ? null : addDays(date, -s.cycleDay), lengthDays: 28 },
-        // The demo cast is simulated, so sharing a summary with the assistant is on. Real users opt in.
-        aiAssistant: true,
         wearableBrand: s.wearableBrand,
         model: createModel({ age: Number(date.slice(0, 4)) - s.birthYear }),
         tonight: { alcohol: false, highStrain: false, illness: false },
@@ -206,9 +197,6 @@ export function seedDemo(store: Store, scenarioId: string | undefined, opts: { d
         truth: { ...DEFAULT_TRUTH, ...s.truth },
       };
       store.saveSleeper(sleeper);
-      if (s.fan) {
-        store.saveDevice({ id: newId('dev'), roomId, kind: 'fan', brand: 'smart-plug', name: `${s.name} · fan`, sleeperId: sleeper.id });
-      }
     }
 
     store.savePreset({ id: newId('pre'), householdId, name: s2(sc, 'Cozy 21', 'Douillet 21'), kind: 'hold', targetC: 21 });

@@ -7,7 +7,6 @@ import {
   DEFAULT_OPTIONS,
   estimateIdeal,
   experiencedCoreC,
-  FAN_COOLING_PER_LEVEL_C,
   HOUR,
   learnFromNight,
   MIN,
@@ -77,13 +76,6 @@ describe('end-of-night learning', () => {
     expect(humid.segments.find((s) => s.phase === 'deep')!.targetC).toBe(17.5);
     // The room was a degree cooler because of humidity; the neutral-context reading is unchanged.
     expect(experiencedCoreC(model, humid, tracking(humid))).toBeCloseTo(18.5, 6);
-  });
-
-  it('counts a personal fan as making the room feel cooler', () => {
-    const model = createModel();
-    const plan = planFor();
-    const withFan = tracking(plan).map((s) => ({ ...s, fanLevel: 2 }));
-    expect(experiencedCoreC(model, plan, withFan)).toBeCloseTo(18.5 - 2 * FAN_COOLING_PER_LEVEL_C, 6);
   });
 
   it('ignores the wind-down and the wake-up warming', () => {
@@ -219,11 +211,12 @@ describe('insights', () => {
     expect((band as { highC: number }).highC).toBeGreaterThan(19.2);
   });
 
-  it('notices humid nights that scored worse, and dry air', () => {
+  it('notices humid nights that scored worse', () => {
     const humid = Array.from({ length: 12 }, (_, i) => (i < 6 ? night(i, { humidityPct: 70, thermalQuality: 68 }) : night(i, { humidityPct: 45, thermalQuality: 78 })));
     expect(buildInsights(createModel(), humid, 0).find((i) => i.id === 'humidNights')).toMatchObject({ nights: 6, drop: 10, averagePct: 70 });
-    const dry = Array.from({ length: 10 }, (_, i) => night(i, { humidityPct: 24 }));
-    expect(buildInsights(createModel(), dry, 0).find((i) => i.id === 'dryAir')).toMatchObject({ nights: 10, averagePct: 24 });
+    // Without humidity readings there is nothing to say about it.
+    const unknown = Array.from({ length: 12 }, (_, i) => night(i, { thermalQuality: i < 6 ? 68 : 78 }));
+    expect(ids(unknown)).not.toContain('humidNights');
   });
 
   it('notices a run of corrections in one direction', () => {

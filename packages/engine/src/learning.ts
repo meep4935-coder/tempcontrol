@@ -11,17 +11,7 @@ import type { FeedbackKind, NightMetrics, Phase } from './types';
 export interface TempSample {
   t: number;
   roomTempC: number;
-  /** Speed (0-3) of this sleeper's personal fan at the time, if they have one. */
-  fanLevel?: number;
 }
-
-/**
- * How much cooler moving air makes a room feel, per fan speed step. A working
- * assumption: with a fan running, the same room is experienced as cooler, and
- * learning has to account for that or it would conclude the person likes a
- * warmer room than they do.
- */
-export const FAN_COOLING_PER_LEVEL_C = 0.6;
 
 export interface PreferenceEvent {
   kind: 'override' | FeedbackKind;
@@ -55,8 +45,7 @@ export interface NightLearning {
   /**
    * The temperature this sleeper effectively slept at, expressed as a
    * deep-sleep temperature in a neutral context: measured room temperature
-   * (less the cooling effect of their fan, if it ran) with the phase offsets
-   * and tonight's context adjustments removed.
+   * with the phase offsets and tonight's context adjustments removed.
    */
   experiencedCoreC: number | null;
   quality: QualityScore | null;
@@ -74,8 +63,7 @@ export function experiencedCoreC(model: ThermalModelState, plan: NightPlan, samp
     if (sample.t < plan.bedtimeMs || sample.t >= plan.wakeMs) continue;
     const phase = phaseAt(plan, sample.t);
     if (!phase || !ASLEEP.includes(phase)) continue;
-    const felt = sample.roomTempC - FAN_COOLING_PER_LEVEL_C * (sample.fanLevel ?? 0);
-    sum += felt - phaseOffset(model, phase, plan.seasonIndex) - modifierDelta(plan.modifiers, phase);
+    sum += sample.roomTempC - phaseOffset(model, phase, plan.seasonIndex) - modifierDelta(plan.modifiers, phase);
     n++;
   }
   return n === 0 ? null : sum / n;

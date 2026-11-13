@@ -1,11 +1,12 @@
 import type {
   AdvanceResponse,
-  AssistantEvent,
+  AssistantReplyDto,
   HoldDto,
   LiveUpdateDto,
   NightDetailDto,
   NightSummaryDto,
   PlanDto,
+  RecommendationDto,
   StateDto,
   VoiceResponse,
 } from '@tempcontrol/contracts';
@@ -50,7 +51,10 @@ describe('demo state', () => {
     expect(state.sleepers[1]!.wearable).toMatchObject({ id: 'oura', delivery: 'morning' });
     expect(state.rooms).toHaveLength(1);
     expect(state.rooms[0]!.sleeperIds).toEqual(state.sleepers.map((s) => s.id));
-    expect(state.rooms[0]!.devices.map((d) => d.kind).sort()).toEqual(['fan', 'humidifier', 'thermostat']);
+    // The room has exactly one device: its thermostat.
+    expect(state.rooms[0]!.devices).toHaveLength(1);
+    expect(state.rooms[0]!.devices[0]).toMatchObject({ brand: 'mysa', equipment: 'miniSplit', reportsHumidity: true });
+    expect(state.savings).toMatchObject({ nights: 0, savedKWh: 0, savedCents: 0 });
     expect(state.presets).toHaveLength(3);
     expect(state.catalog.wearables.length).toBeGreaterThan(5);
     expect(state.catalog.climate.some((b) => b.id === 'nest')).toBe(true);
@@ -222,12 +226,26 @@ describe('presets', () => {
     expect((await call('POST', '/api/presets', { name: '', kind: 'hold', targetC: 20 })).status).toBe(400);
   });
 
-  it('turns a fixed-temperature preset into a hold', async () => {
-    await start();
+  it('runs a fixed-temperature preset all night, every night, until it is cleared', async () => {
+    await start('solo');
     const state = await getState();
+    const room = state.rooms[0]!;
     const preset = state.presets.find((p) => p.kind === 'hold')!;
-    const { body } = await call<StateDto>('POST', `/api/presets/${preset.id}/activate`, { roomId: state.rooms[0]!.id });
-    expect(body.rooms[0]!.hold).toMatchObject({ targetC: preset.targetC, source: 'preset', presetName: preset.name });
+    const { body } = await call<StateDto>('POST', `/api/presets/${preset.id}/activate`, { roomId: room.id });
+    expect(body.rooms[0]!.activePresetId).toBe(preset.id);
+
+    const plan = (await call<PlanDto>('GET', `/api/rooms/${room.id}/plan`)).body;
+    expect(plan.presetName).toBe(preset.name);
+    expect(plan.segments.every((seg) => seg.targetC === preset.targetC)).toBe(true);
+
+    const two = (await call<AdvanceResponse>('POST', '/api/sim/advance', { nights: 2 })).body;
+    expect(two.nights.map((n) => n.coreTargetC)).toEqual([preset.targetC, preset.targetC]);
+    expect(two.state.rooms[0]!.activePresetId).toBe(preset.id);
+
+    await call('DELETE', `/api/rooms/${room.id}/preset`);
+    const auto = (await call<PlanDto>('GET', `/api/rooms/${room.id}/plan`)).body;
+    expect(auto.presetName).toBeNull();
+    expect(new Set(auto.segments.map((seg) => seg.targetC)).size).toBeGreaterThan(1);
   });
 
   it('lets a curve preset replace the algorithm\'s temperatures until it is cleared', async () => {
@@ -246,6 +264,100 @@ describe('presets', () => {
 
     await call('DELETE', `/api/rooms/${room.id}/preset`);
     expect((await call<PlanDto>('GET', `/api/rooms/${room.id}/plan`)).body.presetName).toBeNull();
+  });
+});
+
+describe('morning recommendation', () => {
+  it('says the room is already on the recommended setting when it is automatic', async () => {
+    await start('solo', 6);
+    const state = await getState();
+    const room = state.rooms[0]!;
+    const { status, body: rec } = await call<RecommendationDto>('GET', `/api/rooms/${room.id}/recommendation`);
+    expect(status).toBe(200);
+    expect(rec).toMatchObject({ mode: 'auto', presetName: null, current: null, deepDifferenceC: 0, status: 'applied', date: state.household.date });
+    expect(rec.basedOnNightId).not.toBeNull();
+    expect(rec.findings).toHaveLength(1);
+    expect(rec.findings[0]).toMatchObject({ sleeperId: state.sleepers[0]!.id, idealC: expect.any(Number), nights: expect.any(Number) });
+    expect(rec.findings[0]!.lastNight).toMatchObject({ quality: expect.any(Number) });
+    expect(rec.findings[0]!.insights.every((i) => i.id !== 'ideal')).toBe(true);
+    // The recommendation is tonight's automatic plan.
+    const plan = (await call<PlanDto>('GET', `/api/rooms/${room.id}/plan`)).body;
+    expect(rec.recommended.map((s) => s.targetC)).toEqual(plan.segments.map((s) => s.targetC));
+  });
+
+  it('offers a room on a preset the choice, and applying it switches to automatic', async () => {
+    await start('solo', 6);
+    const state = await getState();
+    const room = state.rooms[0]!;
+    const cozy = state.presets.find((p) => p.kind === 'hold' && p.targetC === 21)!;
+    await call('POST', `/api/presets/${cozy.id}/activate`, { roomId: room.id });
+
+    const rec = (await call<RecommendationDto>('GET', `/api/rooms/${room.id}/recommendation`)).body;
+    expect(rec).toMatchObject({ mode: 'preset', presetName: cozy.name, status: 'pending' });
+    expect(rec.current!.every((s) => s.targetC === 21)).toBe(true);
+    // Sam's data point below 21 for deep sleep, so the recommended setting is cooler there.
+    expect(rec.deepDifferenceC).toBeLessThan(0);
+    expect(rec.recommended.find((s) => s.phase === 'deep')!.targetC).toBe(21 + rec.deepDifferenceC);
+
+    const applied = (await call<StateDto>('POST', `/api/rooms/${room.id}/recommendation`, { action: 'apply' })).body;
+    expect(applied.rooms[0]!.activePresetId).toBeNull();
+    const after = (await call<RecommendationDto>('GET', `/api/rooms/${room.id}/recommendation`)).body;
+    expect(after).toMatchObject({ mode: 'auto', status: 'applied', current: null });
+    expect((await call<PlanDto>('GET', `/api/rooms/${room.id}/plan`)).body.presetName).toBeNull();
+  });
+
+  it('remembers "keep my preset" for the day, and asks again the next morning', async () => {
+    await start('solo', 6);
+    const state = await getState();
+    const room = state.rooms[0]!;
+    const cozy = state.presets.find((p) => p.kind === 'hold')!;
+    await call('POST', `/api/presets/${cozy.id}/activate`, { roomId: room.id });
+
+    const kept = (await call<StateDto>('POST', `/api/rooms/${room.id}/recommendation`, { action: 'keep' })).body;
+    expect(kept.rooms[0]!.activePresetId).toBe(cozy.id);
+    expect((await call<RecommendationDto>('GET', `/api/rooms/${room.id}/recommendation`)).body.status).toBe('kept');
+
+    await call('POST', '/api/sim/advance', { nights: 1 });
+    const next = (await call<RecommendationDto>('GET', `/api/rooms/${room.id}/recommendation`)).body;
+    expect(next).toMatchObject({ mode: 'preset', status: 'pending' });
+    expect((await call('POST', `/api/rooms/${room.id}/recommendation`, { action: 'maybe' })).status).toBe(400);
+    expect((await call('GET', '/api/rooms/nope/recommendation')).status).toBe(404);
+  });
+
+  it('keeps learning while a preset is running, so the recommendation stays current', async () => {
+    await start('solo');
+    const state = await getState();
+    const room = state.rooms[0]!;
+    await call('POST', `/api/presets/${state.presets.find((p) => p.kind === 'hold')!.id}/activate`, { roomId: room.id });
+    const { body } = await call<AdvanceResponse>('POST', '/api/sim/advance', { nights: 10 });
+    expect(body.state.sleepers[0]!.estimate.nights).toBeGreaterThanOrEqual(8);
+    const rec = (await call<RecommendationDto>('GET', `/api/rooms/${room.id}/recommendation`)).body;
+    expect(rec.findings[0]!.nights).toBe(body.state.sleepers[0]!.estimate.nights);
+  });
+});
+
+describe('total savings', () => {
+  it('adds up every night against the thermostat left at its daytime setting', async () => {
+    await start('solo', 12);
+    const state = await getState();
+    const nights = (await call<NightSummaryDto[]>('GET', `/api/rooms/${state.rooms[0]!.id}/nights`)).body;
+    const used = nights.reduce((sum, n) => sum + n.kWh, 0);
+    const baseline = nights.reduce((sum, n) => sum + n.baselineKWh, 0);
+    expect(state.savings.nights).toBe(12);
+    expect(state.savings.usedKWh).toBeCloseTo(used, 1);
+    expect(state.savings.baselineKWh).toBeCloseTo(baseline, 1);
+    expect(state.savings.savedKWh).toBeCloseTo(baseline - used, 1);
+    expect(state.savings.savedCents).toBeCloseTo(nights.reduce((sum, n) => sum + n.baselineCostCents - n.costCents, 0), 0);
+    // A Toronto November on the automatic schedule uses less than holding 21 all night.
+    expect(state.savings.savedKWh).toBeGreaterThan(0);
+    expect(state.savings.savedCents).toBeGreaterThan(0);
+  });
+
+  it('does not count naps', async () => {
+    await start('solo', 2);
+    const before = (await getState()).savings;
+    await call('POST', '/api/nap', { sleeperId: (await getState()).sleepers[0]!.id, minutes: 30 });
+    expect((await getState()).savings).toEqual(before);
   });
 });
 
@@ -325,35 +437,64 @@ describe('settings', () => {
   });
 });
 
-describe('devices', () => {
-  it('needs a thermostat to plan, and accepts a replacement', async () => {
+describe('the thermostat', () => {
+  it('is needed to plan, and can be replaced', async () => {
     await start('solo');
     const state = await getState();
     const room = state.rooms[0]!;
-    const thermostat = room.devices.find((d) => d.kind === 'thermostat')!;
 
-    await call('DELETE', `/api/devices/${thermostat.id}`);
+    await call('DELETE', `/api/devices/${room.devices[0]!.id}`);
     const blocked = await call<{ error: string }>('GET', `/api/rooms/${room.id}/plan`);
     expect(blocked.status).toBe(409);
     expect(blocked.body.error).toBe('no_thermostat');
     expect((await call('POST', '/api/sim/advance', { nights: 1 })).status).toBe(409);
 
-    const { body } = await call<StateDto>('POST', `/api/rooms/${room.id}/devices`, { kind: 'thermostat', brand: 'sinope', equipment: 'baseboard' });
-    expect(body.rooms[0]!.devices.find((d) => d.kind === 'thermostat')).toMatchObject({ brand: 'sinope', equipment: 'baseboard' });
+    const { body } = await call<StateDto>('POST', `/api/rooms/${room.id}/devices`, { brand: 'sinope', equipment: 'baseboard' });
+    expect(body.rooms[0]!.devices).toEqual([expect.objectContaining({ brand: 'sinope', equipment: 'baseboard', reportsHumidity: false })]);
     expect((await call('GET', `/api/rooms/${room.id}/plan`)).status).toBe(200);
   });
 
-  it('checks that the brand makes the device and that fans belong to someone', async () => {
+  it('is the only device a room can have, and must match its brand', async () => {
     await start('solo');
+    const room = (await getState()).rooms[0]!;
+    expect((await call('POST', `/api/rooms/${room.id}/devices`, { brand: 'ecobee' })).status).toBe(409);
+    await call('DELETE', `/api/devices/${room.devices[0]!.id}`);
+    expect((await call('POST', `/api/rooms/${room.id}/devices`, { brand: 'nest', equipment: 'baseboard' })).status).toBe(400);
+    expect((await call('POST', `/api/rooms/${room.id}/devices`, { brand: 'nope' })).status).toBe(400);
+    expect((await call('POST', `/api/rooms/${room.id}/devices`, { brand: 'nest', kind: 'fan' })).status).toBe(400);
+  });
+});
+
+describe('humidity', () => {
+  it('is used when the thermostat reports it', async () => {
+    await start('solo', 2);
+    const state = await getState();
+    expect(state.household.outlook.humidityPct).toEqual(expect.any(Number));
+    const nights = (await call<NightSummaryDto[]>('GET', `/api/rooms/${state.rooms[0]!.id}/nights`)).body;
+    expect(nights[0]!.humidityPct).toEqual(expect.any(Number));
+    const detail = (await call<NightDetailDto>('GET', `/api/nights/${nights[0]!.id}`)).body;
+    expect(detail.trace.every((tick) => typeof tick.humidityPct === 'number')).toBe(true);
+  });
+
+  it('plays no part at all when the thermostat does not report it', async () => {
+    // A humid July night in Ottawa, on a thermostat without a humidity sensor.
+    await start('night-sweats', 3, '2026-07-20');
     const state = await getState();
     const room = state.rooms[0]!;
-    const sleeper = state.sleepers[0]!;
-    expect((await call('POST', `/api/rooms/${room.id}/devices`, { kind: 'thermostat', brand: 'nest' })).status).toBe(409);
-    expect((await call('POST', `/api/rooms/${room.id}/devices`, { kind: 'fan', brand: 'nest', sleeperId: sleeper.id })).status).toBe(400);
-    expect((await call('POST', `/api/rooms/${room.id}/devices`, { kind: 'fan', brand: 'smart-plug' })).status).toBe(400);
-    const { body } = await call<StateDto>('POST', `/api/rooms/${room.id}/devices`, { kind: 'fan', brand: 'smart-plug', sleeperId: sleeper.id });
-    expect(body.rooms[0]!.devices.find((d) => d.kind === 'fan')).toMatchObject({ sleeperId: sleeper.id });
-    expect((await call('POST', `/api/rooms/${room.id}/devices`, { kind: 'fan', brand: 'dyson', sleeperId: sleeper.id })).status).toBe(409);
+    expect(room.devices[0]!.reportsHumidity).toBe(false);
+    expect(state.household.outlook.humidityPct).toBeNull();
+    expect(room.climate.humidityPct).toBeNull();
+
+    const plan = (await call<PlanDto>('GET', `/api/rooms/${room.id}/plan`)).body;
+    expect(plan.context.humidityPct).toBeNull();
+    expect(plan.sleepers[0]!.modifiers.map((m) => m.id)).not.toContain('humidity');
+
+    const nights = (await call<NightSummaryDto[]>('GET', `/api/rooms/${room.id}/nights`)).body;
+    expect(nights.every((n) => n.humidityPct === null && !n.sleepers[0]!.modifiers.includes('humidity'))).toBe(true);
+    const detail = (await call<NightDetailDto>('GET', `/api/nights/${nights[0]!.id}`)).body;
+    expect(detail.trace.every((tick) => tick.humidityPct === null)).toBe(true);
+    const insights = (await call<Insight[]>('GET', `/api/sleepers/${state.sleepers[0]!.id}/insights`)).body;
+    expect(insights.map((i) => i.id)).not.toContain('humidNights');
   });
 });
 
@@ -551,7 +692,10 @@ describe('voice', () => {
     const preset = state.presets.find((p) => p.kind === 'hold')!;
     const activated = await say(`activate preset ${preset.name}`, alex.id);
     expect(activated.outcome).toEqual({ type: 'presetActivated', name: preset.name });
-    expect((await getState()).rooms[0]!.hold).toMatchObject({ source: 'preset', targetC: preset.targetC });
+    expect((await getState()).rooms[0]!.activePresetId).toBe(preset.id);
+    // "Back to automatic" clears it again.
+    await say('back to automatic', alex.id);
+    expect((await getState()).rooms[0]!.activePresetId).toBeNull();
 
     const lost = await say('play some jazz', alex.id);
     expect(lost.outcome).toEqual({ type: 'notUnderstood' });
@@ -655,40 +799,52 @@ describe('feedback and insights', () => {
 });
 
 describe('assistant', () => {
-  const ask = async (payload: object): Promise<{ status: number; events: AssistantEvent[]; type: string }> => {
-    const res = await app!.inject({ method: 'POST', url: '/api/assistant', payload });
-    const events = res.body
-      .split('\n\n')
-      .filter((chunk) => chunk.startsWith('data: '))
-      .map((chunk) => JSON.parse(chunk.slice(6)) as AssistantEvent);
-    return { status: res.statusCode, events, type: String(res.headers['content-type']) };
-  };
+  const ask = async (sleeperId: string, message: string): Promise<AssistantReplyDto> => (await call<AssistantReplyDto>('POST', '/api/assistant', { sleeperId, message })).body;
 
-  it('answers from computed insights when no AI model is configured', async () => {
-    const saved = { key: process.env.ANTHROPIC_API_KEY, token: process.env.ANTHROPIC_AUTH_TOKEN };
-    delete process.env.ANTHROPIC_API_KEY;
-    delete process.env.ANTHROPIC_AUTH_TOKEN;
-    try {
-      await start('couple', 8);
-      const state = await getState();
-      expect(state.assistant.ai).toBe(false);
+  it('answers each partner from their own data, in their own language', async () => {
+    await start('couple', 8);
+    const state = await getState();
+    const [camille, alex] = state.sleepers;
 
-      const fr = await ask({ sleeperId: state.sleepers[0]!.id, message: 'Pourquoi fait-il plus frais ce soir ?' });
-      expect(fr.status).toBe(200);
-      expect(fr.type).toContain('text/event-stream');
-      expect(fr.events[fr.events.length - 1]).toEqual({ type: 'done', source: 'rules' });
-      const text = fr.events.flatMap((e) => (e.type === 'delta' ? [e.text] : [])).join('');
-      expect(text).toContain('Votre température idéale');
-      // The other partner gets the same kind of answer in their own language.
-      const en = await ask({ sleeperId: state.sleepers[1]!.id, message: 'How am I sleeping?' });
-      expect(en.events.flatMap((e) => (e.type === 'delta' ? [e.text] : [])).join('')).toContain('Your ideal deep-sleep temperature');
-    } finally {
-      if (saved.key !== undefined) process.env.ANTHROPIC_API_KEY = saved.key;
-      if (saved.token !== undefined) process.env.ANTHROPIC_AUTH_TOKEN = saved.token;
-    }
+    const fr = await ask(camille!.id, 'Quelle est ma température idéale ?');
+    expect(fr.topic).toBe('ideal');
+    expect(fr.text).toContain('température idéale');
+    expect(fr.text).toContain(String(Math.round(camille!.estimate.coreC * 2) / 2).replace('.', ','));
+    expect(fr.followUps.length).toBeGreaterThan(0);
+
+    const en = await ask(alex!.id, 'What is my ideal temperature?');
+    expect(en.topic).toBe('ideal');
+    expect(en.text).toContain('ideal deep-sleep temperature');
+    expect(en.text).toContain(String(Math.round(alex!.estimate.coreC * 2) / 2));
   });
 
-  it('validates the request before opening a stream', async () => {
+  it('explains tonight, the wearable, savings and sharing a room', async () => {
+    await start('couple', 8);
+    const [camille, alex] = (await getState()).sleepers;
+    const tonight = await ask(alex!.id, "What is tonight's plan?");
+    expect(tonight.topic).toBe('tonight');
+    expect(tonight.text).toMatch(/Tonight: .*deep sleep/);
+    expect(tonight.text).toContain('shared');
+
+    expect((await ask(alex!.id, 'Does my ring report live?')).text).toContain('syncs after you wake');
+    expect((await ask(camille!.id, 'Ma montre transmet-elle en direct ?')).text).toContain('pendant la nuit');
+    expect((await ask(alex!.id, 'How much money have I saved?')).topic).toBe('savings');
+    expect((await ask(alex!.id, 'How does it work with my partner?')).topic).toBe('partner');
+  });
+
+  it('declines medical questions and admits what it does not understand', async () => {
+    await start('solo', 3);
+    const id = (await getState()).sleepers[0]!.id;
+    const medical = await ask(id, 'Should I take melatonin for my insomnia?');
+    expect(medical.topic).toBe('medical');
+    expect(medical.text).toContain('cannot give medical advice');
+    const lost = await ask(id, 'Who won the hockey game?');
+    expect(lost.topic).toBe('unknown');
+    expect(lost.text).toContain('did not understand');
+    expect(lost.followUps.length).toBeGreaterThan(0);
+  });
+
+  it('validates the request', async () => {
     await start('solo');
     const id = (await getState()).sleepers[0]!.id;
     expect((await call('POST', '/api/assistant', { sleeperId: id, message: '' })).status).toBe(400);
@@ -705,7 +861,7 @@ describe('reset', () => {
     expect(body.sleepers.map((s) => s.name)).toEqual(['Dominique']);
     expect(body.sleepers[0]!.options.menopauseMode).toBe(true);
     expect(body.sleepers[0]!.estimate.nights).toBe(2);
-    expect(body.rooms[0]!.devices.some((d) => d.kind === 'fan')).toBe(true);
+    expect(body.rooms[0]!.devices).toHaveLength(1);
     expect((await call('POST', '/api/sim/reset', { scenario: 'nope' })).status).toBe(400);
   });
 

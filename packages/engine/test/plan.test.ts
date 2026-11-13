@@ -14,7 +14,6 @@ import {
   HARD_LIMITS,
   holdActive,
   HOUR,
-  humidityAdvice,
   isConfoundedNight,
   leadMinutes,
   MIN,
@@ -293,12 +292,6 @@ describe('tonight-specific adjustments', () => {
     expect(deriveRecovery({ alcohol: true }).alcohol).toBe(true);
   });
 
-  it('advises on humidity', () => {
-    expect(humidityAdvice(undefined).advice).toBe('ok');
-    expect(humidityAdvice(45).advice).toBe('ok');
-    expect(humidityAdvice(22)).toEqual({ advice: 'humidify', targetPct: 40 });
-    expect(humidityAdvice(68)).toEqual({ advice: 'dehumidify', targetPct: 50 });
-  });
 });
 
 describe('setpoint decision', () => {

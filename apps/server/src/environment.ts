@@ -15,9 +15,6 @@ import { RoomNightSim, type WorldSetup } from '@tempcontrol/engine/sim';
 export interface Commands {
   /** Setpoint to hold until the next step; null hands the thermostat back to its own schedule. */
   setpointC: number | null;
-  /** Personal fan speed (0-3) per sleeper. */
-  fans: Record<string, number>;
-  humidityDevice: { kind: 'humidifier' | 'dehumidifier'; targetPct: number } | null;
 }
 
 export interface Observation {
@@ -72,7 +69,7 @@ export class SimEnvironment implements NightEnvironment {
   }
 
   async step(commands: Commands): Promise<Observation> {
-    const r = this.world.advance({ setpointC: commands.setpointC, fans: commands.fans, humidityDevice: commands.humidityDevice });
+    const r = this.world.advance({ setpointC: commands.setpointC });
     return { ...r, manualChanges: r.overrides };
   }
 

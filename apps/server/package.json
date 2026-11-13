@@ -8,7 +8,6 @@
     "start": "tsx --disable-warning=ExperimentalWarning src/main.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^1.8.0",
     "@fastify/static": "^10.1.11",
     "@tempcontrol/contracts": "*",
     "@tempcontrol/engine": "*",

@@ -6,7 +6,6 @@
  * or a test) decides the setpoint each step, exactly as with real devices.
  */
 
-import { FAN_COOLING_PER_LEVEL_C } from '../learning';
 import type { HvacMode, LiveVitals, Phase, Rng } from '../types';
 import { MIN } from '../util';
 import { sensedTempC, stepHumidity, stepRoom, type RoomParams, type RoomState, type Running } from './room';
@@ -52,9 +51,6 @@ export interface WorldSetup {
 export interface AdvanceInput {
   /** Setpoint commanded for this step; null leaves the thermostat at its idle setpoint. */
   setpointC: number | null;
-  humidityDevice?: { kind: 'humidifier' | 'dehumidifier'; targetPct: number } | null;
-  /** Personal fan speed per sleeper (0-3). */
-  fans?: Record<string, number>;
 }
 
 export interface WorldReading {
@@ -125,7 +121,7 @@ export class RoomNightSim {
     const outdoorC = this.outdoorC(this.now + (setup.tickMin * MIN) / 2);
     const step = stepRoom(this.room, setup.room, { setpointC, mode: setup.mode, outdoorC, minutes: setup.tickMin });
     this.room = step.state;
-    this.humidity = stepHumidity(this.humidity, setup.ambientHumidityPct, setup.tickMin, input.humidityDevice ?? undefined);
+    this.humidity = stepHumidity(this.humidity, setup.ambientHumidityPct, setup.tickMin);
     this.now += setup.tickMin * MIN;
 
     const vitals: Record<string, LiveVitals | null> = {};
@@ -137,13 +133,12 @@ export class RoomNightSim {
       vitals[s.id] = null;
       if (!present) continue;
       const phase = s.phaseAt(this.now - 1) ?? 'deep';
-      const fan = input.fans?.[s.id] ?? 0;
       const tick = sleeperTick(
         s.truth,
         this.nights.get(s.id)!,
         {
           t: this.now,
-          roomTempC: this.room.tempC - FAN_COOLING_PER_LEVEL_C * fan,
+          roomTempC: this.room.tempC,
           phase,
           ctx: { ...s.ctx, humidityPct: this.humidity },
         },

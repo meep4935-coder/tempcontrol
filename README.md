@@ -4,7 +4,9 @@ A sleep-temperature platform. It reads each sleeper's wearable, learns the bedro
 
 "TempControl" is a working name.
 
-This repository holds the working engine, the server, and a web dashboard that runs the whole thing against **simulated** wearables and thermostats, so the product can be seen working before any device developer accounts are opened.
+It assumes a sleeper has two things and nothing more: a wearable, and one smart-controlled air conditioner or thermostat in the bedroom.
+
+This repository holds the working engine and the server, which run the whole thing against **simulated** wearables and thermostats, so the product can be exercised before any device developer accounts are opened. The web dashboard (`apps/web`) is unfinished.
 
 ## Run it
 
@@ -15,16 +17,10 @@ npm install
 ```
 
 ```bash
-npm run build
-```
-
-```bash
 npm start
 ```
 
-Then open http://localhost:4000. The first start creates a demo household (a couple in Montréal) with ten nights of history.
-
-For development, `npm run dev` runs the server and the dashboard with live reload (dashboard on http://localhost:5173).
+The API is then at http://localhost:4000/api (try `/api/state`). The first start creates a demo household (a couple in Montréal) with ten nights of history.
 
 ```bash
 npm test
@@ -42,20 +38,19 @@ npm run typecheck
 | `TEMPCONTROL_DB` | `data/tempcontrol.db` | SQLite file |
 | `TEMPCONTROL_SCENARIO` | `couple` | Demo created on first start: `couple`, `solo` or `night-sweats` |
 | `TEMPCONTROL_HISTORY_NIGHTS` | `10` | Nights simulated when the demo is created |
-| `ANTHROPIC_API_KEY` | unset | Enables the AI assistant. Without it the assistant answers from computed insights only |
 
 ## What is real and what is simulated
 
 | Part | Status |
 |---|---|
-| Learning model, night plans, couples blending, live adjustments, energy shaping, travel, voice parsing | Real, tested code |
+| Learning model, night plans, couples blending, live adjustments, morning recommendation, energy shaping and savings, travel, voice parsing, built-in assistant | Real, tested code |
 | Server, storage, API, control loop | Real |
-| Wearables, thermostats, fans, humidifiers | **Simulated.** Choosing "Nest" or "Oura" creates a simulated device |
+| Wearables and thermostats | **Simulated.** Choosing "Nest" or "Oura" creates a simulated device |
 | The sleepers | **Simulated people** with a hidden true preference the engine has to discover |
 | Weather, humidity | Simulated from rounded climate normals |
 | Electricity rates | Real published rates, but entered from search excerpts on 2026-11-13 because the utility sites could not be opened from the build environment. **Re-verify every figure before relying on it** (`packages/engine/src/tariffs.ts`) |
 | Energy savings shown | Computed inside the simulation, against "thermostat left at its daytime setting" |
-| AI assistant | Real when a key is configured; otherwise rule-based |
+| Dashboard | Unfinished: only scaffolding exists in `apps/web` |
 
 Nothing here has been tested on real people. Sleep and comfort figures in the demo come from the simulation and are not evidence of real-world results.
 
@@ -65,7 +60,7 @@ Nothing here has been tested on real people. Sleep and comfort figures in the de
 packages/engine      The algorithm. Pure TypeScript, no dependencies, runs anywhere
 packages/contracts   Types of every API request and response
 apps/server          API, storage, control loop, simulated devices
-apps/web             Dashboard
+apps/web             Dashboard (unfinished)
 ```
 
 A phone app (iOS and Android) would be a fifth package using the same engine types and the same API.
@@ -81,9 +76,17 @@ Before any data it starts from a typical-adult curve, so the first night already
 
 **One plan per night.** Wind-down before bed, slightly warm while falling asleep, coolest in deep sleep, slightly warmer in late sleep, warmed before waking (more in winter). Tonight's plan is adjusted for humidity and, where the sleeper has opted in, cycle phase, hard training, alcohol and illness. Every adjustment is named so the app can explain it.
 
-**One schedule per room.** Each sleeper's plan is blended into the schedule the thermostat follows. Everyone in bed has an equal say; someone still winding down, or already up, counts for half. A personal fan can make up the difference for whoever wants it cooler. Energy mode then shifts heating and cooling out of expensive hours, inside a comfort tolerance the user sets.
+**One schedule per room.** Each sleeper's plan is blended into the schedule the thermostat follows. Everyone in bed has an equal say; someone still winding down, or already up, counts for half. Energy mode then shifts heating and cooling out of expensive hours, inside a comfort tolerance the user sets.
 
-**A control loop through the night.** Every few minutes: a manual temperature wins if one is set; otherwise the plan, nudged by live readings when the wearable reports during the night (restless and warm: cool half a degree; a hot flash: fan first). In the morning the night becomes evidence for each sleeper's model.
+**A control loop through the night.** Every few minutes: a manual temperature wins if one is set; otherwise the plan, nudged by live readings when the wearable reports during the night (restless and warm: cool half a degree; a hot flash, for those who switch that mode on: a short burst of cooling). In the morning the night becomes evidence for each sleeper's model.
+
+**A recommendation each morning.** "Your data suggest X, so we recommend Y." The recommended setting is the automatic schedule. A room running on one of the user's presets is offered the choice every morning: apply the recommended setting, or keep the preset. The model keeps learning either way.
+
+**Savings.** Every night's energy use and cost is compared with leaving the thermostat at its daytime setting, and the running total is reported.
+
+**Humidity** is used only when the thermostat reports it. Otherwise it plays no part anywhere.
+
+**A built-in assistant.** It recognises the questions people ask about sleep temperature, in English and French, and answers each from that sleeper's own numbers. It is the platform's own code (`packages/engine/src/assistant.ts`): no outside AI service, nothing leaves the platform, and it declines medical questions.
 
 `packages/engine/src/model.ts` has the full explanation of the learning model.
 
@@ -116,4 +119,4 @@ The demo is built to show the product working, not to be put on the internet as 
 
 TempControl is not a medical device and gives no medical advice. Its adjustments for cycle phase, menopause, recovery and illness are starting assumptions that each person's data then revises; they are opt-in.
 
-Wearable data is health information. In Canada that means PIPEDA, Québec's Law 25, and provincial health-privacy rules may apply; get legal advice before handling real users' data. The assistant only sends a sleeper's data to the AI model if that sleeper has consented, and what it sends carries no name, account or location (`apps/server/src/assistant.ts`).
+Wearable data is health information. In Canada that means PIPEDA, Québec's Law 25, and provincial health-privacy rules may apply; get legal advice before handling real users' data. No sleeper data is sent to any outside AI service.

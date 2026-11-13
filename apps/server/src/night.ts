@@ -22,13 +22,10 @@ import {
   deriveRecovery,
   energyCostCents,
   estimateIdeal,
-  FAN_COOLING_PER_LEVEL_C,
-  fanLevel,
   flatTariff,
   getTariff,
   hashString,
   holdActive,
-  humidityAdvice,
   hvacDirection,
   INFERRED_SIGNAL_NOISE_C,
   jetLagSchedule,
@@ -38,7 +35,6 @@ import {
   liveStep,
   MIN,
   parseClock,
-  personalCooling,
   phaseAt,
   phaseOffset,
   pricePeriods,
@@ -57,7 +53,6 @@ import {
   type NightContext,
   type NightPlan,
   type PeakEvent,
-  type PersonalCooling,
   type PreferenceEvent,
   type PricePeriod,
   type RecoverySignals,
@@ -172,7 +167,6 @@ export interface PlannedSleeper {
   context: NightContext;
   plan: NightPlan;
   realtime: boolean;
-  fan: DeviceRecord | undefined;
 }
 
 export interface NightSetup {
@@ -186,14 +180,16 @@ export interface NightSetup {
   roomPlan: RoomPlan;
   periods: PricePeriod[];
   changes: EnergyChange[];
-  cooling: PersonalCooling[];
-  humidityDevice: { kind: 'humidifier' | 'dehumidifier'; targetPct: number } | null;
+  /** Tonight's humidity as the thermostat reports it; null when it does not. */
+  humidityPct: number | null;
   dto: PlanDto;
 }
 
 export interface PlanOptions {
   /** Plan a nap for one sleeper instead of the night. */
   nap?: { sleeperId: string; minutes: number; startMs: number };
+  /** Ignore the room's preset and plan the automatic (recommended) schedule. */
+  automatic?: boolean;
 }
 
 export function planNight(store: Store, roomId: string, opts: PlanOptions = {}): NightSetup {
@@ -201,13 +197,15 @@ export function planNight(store: Store, roomId: string, opts: PlanOptions = {}):
   const household = store.household();
   if (!room || !household) throw new RequestError(404, 'not_found', 'Room not found.');
   const devices = store.devices(roomId);
-  const thermostat = devices.find((d) => d.kind === 'thermostat');
-  if (!thermostat) throw new RequestError(409, 'no_thermostat', 'This room has no thermostat or climate device to control.');
+  const thermostat = devices[0];
+  if (!thermostat) throw new RequestError(409, 'no_thermostat', 'This room has no thermostat to control.');
 
   const outlook = outlookFor(household);
   const { climate } = outlook;
   const s = outlook.seasonIndex;
-  const preset = room.activePresetId ? store.preset(room.activePresetId) : undefined;
+  const preset = room.activePresetId && !opts.automatic ? store.preset(room.activePresetId) : undefined;
+  // Humidity only exists for the platform if the thermostat measures it.
+  const humidityPct = thermostat.reportsHumidity ? outlook.humidityPct : null;
 
   const inRoom = store.sleepers(household.id).filter((x) => x.roomId === roomId);
   const chosen = opts.nap ? inRoom.filter((x) => x.id === opts.nap!.sleeperId) : inRoom;
@@ -215,7 +213,7 @@ export function planNight(store: Store, roomId: string, opts: PlanOptions = {}):
 
   const sleepers: PlannedSleeper[] = chosen.map((record) => {
     const tonight = sleeperTonight(record, household, climate.timeZone);
-    const context: NightContext = opts.nap ? {} : { humidityPct: outlook.humidityPct, cyclePhase: tonight.cyclePhase ?? undefined, recovery: tonight.recovery };
+    const context: NightContext = opts.nap ? {} : { humidityPct: humidityPct ?? undefined, cyclePhase: tonight.cyclePhase ?? undefined, recovery: tonight.recovery };
 
     let plan: NightPlan;
     if (opts.nap) {
@@ -239,7 +237,12 @@ export function planNight(store: Store, roomId: string, opts: PlanOptions = {}):
         // Mornings are warmed up to the household's daytime setting, or a degree past it when energy is not a concern.
         wakeCapC: household.daySetpointC + (household.energy.enabled ? 0 : 1),
       });
+      // A preset replaces the automatic temperatures: a curve phase by phase, a fixed temperature all night.
       if (preset?.kind === 'curve' && preset.temps) plan = withPhaseTargets(plan, preset.temps, record.limits);
+      else if (preset?.kind === 'hold' && preset.targetC !== undefined) {
+        const t = preset.targetC;
+        plan = withPhaseTargets(plan, { onset: t, deep: t, rem: t, wake: t }, record.limits);
+      }
     }
 
     return {
@@ -248,7 +251,6 @@ export function planNight(store: Store, roomId: string, opts: PlanOptions = {}):
       context,
       plan,
       realtime: wearableBrand(record.wearableBrand).delivery === 'live',
-      fan: devices.find((d) => d.kind === 'fan' && d.sleeperId === record.id),
     };
   });
 
@@ -266,14 +268,6 @@ export function planNight(store: Store, roomId: string, opts: PlanOptions = {}):
     changes = shaped.changes;
   }
 
-  const advice = humidityAdvice(outlook.humidityPct);
-  const humidityUnit = advice.advice === 'ok' ? undefined : devices.find((d) => d.kind === (advice.advice === 'humidify' ? 'humidifier' : 'dehumidifier'));
-  const humidityDevice =
-    humidityUnit && advice.targetPct !== undefined && !opts.nap
-      ? { kind: humidityUnit.kind as 'humidifier' | 'dehumidifier', targetPct: advice.targetPct }
-      : null;
-
-  const cooling = personalCooling(roomPlan).filter((c) => sleepers.some((p) => p.record.id === c.sleeperId && p.fan));
   const equipment = ROOM_PRESETS[thermostat.equipment ?? 'central']!;
 
   const dto: PlanDto = {
@@ -298,19 +292,17 @@ export function planNight(store: Store, roomId: string, opts: PlanOptions = {}):
     limits: roomPlan.limits,
     context: {
       outdoorC: outlook.outdoorC,
-      humidityPct: outlook.humidityPct,
+      humidityPct,
       seasonIndex: s,
       season: seasonName(household.date, climate.latitude),
       mode: seasonalMode(outlook.outdoorC, equipment),
     },
     energy: { enabled: household.energy.enabled, direction, toleranceC: household.energy.toleranceC, periods, changes },
-    humidity: { advice: advice.advice, targetPct: advice.targetPct, deviceId: humidityUnit?.id },
-    fans: cooling,
     hold: opts.nap ? null : room.pendingHold,
-    presetName: preset?.kind === 'curve' ? preset.name : null,
+    presetName: preset?.name ?? null,
   };
 
-  return { kind: opts.nap ? 'nap' : 'night', household, room, devices, thermostat, outlook, sleepers, roomPlan, periods, changes, cooling, humidityDevice, dto };
+  return { kind: opts.nap ? 'nap' : 'night', household, room, devices, thermostat, outlook, sleepers, roomPlan, periods, changes, humidityPct, dto };
 }
 
 /* --------------------------------------------------------------------- running */
@@ -363,7 +355,6 @@ export class NightRunner {
   private readonly pendingEnergy: EnergyChange[];
   private lastObservation: Observation | null = null;
   private endedEarlyAt: number | null = null;
-  private humidityAnnounced = false;
 
   private constructor(
     private readonly store: Store,
@@ -411,8 +402,9 @@ export class NightRunner {
     return decideSetpoint({ t, plan: this.setup.roomPlan, hold: this.hold, liveOffsetC: liveOffset(this.live, t) }).targetC;
   }
 
-  lastReading(): { roomTempC: number; humidityPct: number } | null {
-    return this.lastObservation ? { roomTempC: this.lastObservation.roomTempC, humidityPct: this.lastObservation.humidityPct } : null;
+  lastReading(): { roomTempC: number; humidityPct: number | null } | null {
+    const reports = this.setup.thermostat.reportsHumidity;
+    return this.lastObservation ? { roomTempC: this.lastObservation.roomTempC, humidityPct: reports ? this.lastObservation.humidityPct : null } : null;
   }
 
   private applyHold(input: HoldInput, startMs: number): void {
@@ -486,24 +478,12 @@ export class NightRunner {
     }
 
     const decision = decideSetpoint({ t, plan: roomPlan, hold: this.hold, liveOffsetC: liveOffset(this.live, t) });
-    const fans: Record<string, number> = {};
-    for (const p of sleepers) if (p.fan) fans[p.record.id] = fanLevel(p.record.id, t, this.live, this.setup.cooling);
-
-    if (this.setup.humidityDevice && !this.humidityAnnounced) {
-      this.humidityAnnounced = true;
-      this.events.push({
-        t,
-        kind: 'humidity',
-        action: this.setup.humidityDevice.kind === 'humidifier' ? 'humidify' : 'dehumidify',
-        targetPct: this.setup.humidityDevice.targetPct,
-      });
-    }
     while (this.pendingEnergy.length > 0 && this.pendingEnergy[0]!.startMs <= t) {
       const change = this.pendingEnergy.shift()!;
       this.events.push({ t: change.startMs, kind: 'energy', change: change.kind, deltaC: change.deltaC, peakEvent: change.peakEvent });
     }
 
-    const obs = await this.env.step({ setpointC: decision.targetC, fans, humidityDevice: this.setup.humidityDevice });
+    const obs = await this.env.step({ setpointC: decision.targetC });
     this.lastObservation = obs;
 
     const vitals: TickDto['vitals'] = {};
@@ -519,11 +499,10 @@ export class NightRunner {
       phase: decision.phase ?? null,
       liveOffsetC: decision.liveOffsetC,
       outdoorC: Math.round(obs.outdoorC * 10) / 10,
-      humidityPct: Math.round(obs.humidityPct),
+      humidityPct: this.setup.thermostat.reportsHumidity ? Math.round(obs.humidityPct) : null,
       running: obs.running,
       kWh: obs.kWh,
       vitals,
-      fans,
     };
     this.trace.push(tick);
 
@@ -543,21 +522,19 @@ export class NightRunner {
         vitals: obs.vitals[p.record.id] ?? null,
         inBed: obs.inBed[p.record.id] ?? false,
         menopauseMode: p.record.options.menopauseMode,
-        hasFan: Boolean(p.fan),
       })),
     });
     this.live = step.state;
     for (const e of step.events) {
       this.events.push({ t: e.t, kind: 'live', reason: e.reason, deltaC: e.deltaC, offsetC: e.offsetC, sleeperId: e.sleeperId });
       // The first time a sleeper's body asks for a change is read as a weak comfort signal.
-      const restless = e.reason === 'restlessWarm' || e.reason === 'restlessCold' || e.reason === 'fanUp';
+      const restless = e.reason === 'restlessWarm' || e.reason === 'restlessCold';
       if (restless && e.sleeperId && !this.nudged.has(e.sleeperId)) {
         this.nudged.add(e.sleeperId);
         this.preferences.get(e.sleeperId)?.push({
           kind: e.reason === 'restlessCold' ? 'tooCold' : 'tooHot',
           t: e.t,
-          // What they felt at that moment: the room, less their own fan's cooling.
-          tempC: obs.roomTempC - FAN_COOLING_PER_LEVEL_C * (fans[e.sleeperId] ?? 0),
+          tempC: obs.roomTempC,
           noiseC: INFERRED_SIGNAL_NOISE_C,
         });
       }
@@ -595,8 +572,7 @@ export class NightRunner {
         kind === 'night'
           ? learnFromNight(current.model, {
               plan: p.plan,
-              // What this sleeper felt: the room, less their own fan's cooling when it ran.
-              samples: this.trace.map((tick) => ({ t: tick.t, roomTempC: tick.roomTempC, fanLevel: tick.fans[p.record.id] ?? 0 })),
+              samples,
               metrics: report.metrics,
               context: p.context,
               preferences,
@@ -638,7 +614,7 @@ export class NightRunner {
       startMs: roomPlan.startMs,
       endMs: this.endedEarlyAt ?? roomPlan.endMs,
       outdoorC: Math.round(outlook.outdoorC * 10) / 10,
-      humidityPct: Math.round(mean(this.trace.map((tick) => tick.humidityPct))),
+      humidityPct: this.setup.humidityPct === null ? null : Math.round(mean(this.trace.map((tick) => tick.humidityPct ?? 0))),
       seasonIndex: round2(s),
       coreTargetC: Math.min(...roomPlan.segments.map((seg) => seg.targetC)),
       avgRoomTempC: round2(mean(asleep.map((tick) => tick.roomTempC))),
@@ -685,7 +661,7 @@ export async function simulateNights(store: Store, count: number): Promise<Night
     let ran = 0;
     for (const room of rooms) {
       const hasSleepers = store.sleepers(household.id).some((x) => x.roomId === room.id);
-      const hasThermostat = store.devices(room.id).some((d) => d.kind === 'thermostat');
+      const hasThermostat = store.devices(room.id).length > 0;
       if (!hasSleepers || !hasThermostat) continue;
       const runner = NightRunner.create(store, room.id);
       await runner.runToEnd();

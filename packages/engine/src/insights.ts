@@ -49,8 +49,6 @@ export type Insight =
   | { id: 'seasonShift'; shiftC: number }
   /** Humid nights scored worse. */
   | { id: 'humidNights'; nights: number; drop: number; averagePct: number }
-  /** The bedroom air has been dry. */
-  | { id: 'dryAir'; nights: number; averagePct: number }
   /** The user keeps correcting the plan in one direction. */
   | { id: 'overrides'; count: number; direction: 'warmer' | 'cooler' }
   /** Recent nights compared with the ones before. */
@@ -112,12 +110,6 @@ export function buildInsights(model: ThermalModelState, history: readonly NightR
       out.push({ id: 'humidNights', nights: humid.length, drop: round1(drop), averagePct: Math.round(mean(humid.map((n) => n.humidityPct!))) });
     }
   }
-  const recentHumidity = history.slice(-14).filter((n) => n.humidityPct !== undefined);
-  const dry = recentHumidity.filter((n) => n.humidityPct! < 30);
-  if (dry.length >= 5) {
-    out.push({ id: 'dryAir', nights: dry.length, averagePct: Math.round(mean(dry.map((n) => n.humidityPct!))) });
-  }
-
   const recent = history.slice(-14);
   const overridden = recent.filter((n) => n.overrides > 0 && n.overrideDeltaC !== undefined && n.overrideDeltaC !== 0);
   if (overridden.length >= 3) {

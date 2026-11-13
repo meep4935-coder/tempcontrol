@@ -70,12 +70,8 @@ export function describeInsight(insight: Insight, opts: TextOptions): string {
           : `In winter you sleep better about ${delta(insight.shiftC)} cooler than during the rest of the year.`;
     case 'humidNights':
       return fr
-        ? `Les ${insight.nights} nuits humides (environ ${insight.averagePct}\u00a0% d'humidité) ont obtenu ${n(insight.drop)} points de moins. Un déshumidificateur dans la chambre pourrait aider.`
-        : `The ${insight.nights} humid nights (around ${insight.averagePct}% humidity) scored ${n(insight.drop)} points lower. A dehumidifier in the bedroom could help.`;
-    case 'dryAir':
-      return fr
-        ? `L'air de la chambre est sec : environ ${insight.averagePct}\u00a0% d'humidité sur ${insight.nights} nuits récentes. Viser 40\u00a0% avec un humidificateur est généralement plus confortable.`
-        : `The bedroom air has been dry: around ${insight.averagePct}% humidity on ${insight.nights} recent nights. Aiming for 40% with a humidifier is usually more comfortable.`;
+        ? `Les ${insight.nights} nuits humides (environ ${insight.averagePct}\u00a0% d'humidité) ont obtenu ${n(insight.drop)} points de moins. Ces nuits-là, le plan garde la chambre un peu plus fraîche.`
+        : `The ${insight.nights} humid nights (around ${insight.averagePct}% humidity) scored ${n(insight.drop)} points lower. On those nights the plan keeps the room a little cooler.`;
     case 'overrides':
       return insight.direction === 'warmer'
         ? fr
@@ -95,8 +91,8 @@ export function describeInsight(insight: Insight, opts: TextOptions): string {
     case 'cannotReach':
       return insight.direction === 'cooler'
         ? fr
-          ? `Sur ${insight.nights} nuits récentes, la chambre est restée environ ${delta(insight.shortfallC)} au-dessus de la température demandée. Fermer la porte, entrouvrir une fenêtre ou ajouter un ventilateur aiderait à l'atteindre.`
-          : `On ${insight.nights} recent nights the room stayed about ${delta(insight.shortfallC)} above the temperature asked for. Closing the door, opening a window slightly or adding a fan would help it get there.`
+          ? `Sur ${insight.nights} nuits récentes, la chambre est restée environ ${delta(insight.shortfallC)} au-dessus de la température demandée. Le climatiseur peine peut-être à suivre, ou il n'est pas en mode refroidissement.`
+          : `On ${insight.nights} recent nights the room stayed about ${delta(insight.shortfallC)} above the temperature asked for. The air conditioning may be struggling to keep up, or may not be in cooling mode.`
         : fr
           ? `Sur ${insight.nights} nuits récentes, la chambre est restée environ ${delta(insight.shortfallC)} sous la température demandée. Le chauffage peine peut-être à suivre.`
           : `On ${insight.nights} recent nights the room stayed about ${delta(insight.shortfallC)} below the temperature asked for. The heating may be struggling to keep up.`;

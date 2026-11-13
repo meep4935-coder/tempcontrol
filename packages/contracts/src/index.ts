@@ -24,7 +24,6 @@ import type {
   LocalizedText,
   Modifier,
   NightMetrics,
-  PersonalCooling,
   Phase,
   PlanSegment,
   PricePeriod,
@@ -53,7 +52,6 @@ export type {
   LocalizedText,
   Modifier,
   NightMetrics,
-  PersonalCooling,
   Phase,
   PlanSegment,
   PricePeriod,
@@ -85,15 +83,12 @@ export interface WearableBrand {
   connection: WearableConnection;
 }
 
-export type DeviceKind = 'thermostat' | 'fan' | 'humidifier' | 'dehumidifier';
-
-/** What a thermostat-type device actually drives. */
+/** What the room's smart control actually drives. */
 export type Equipment = 'central' | 'baseboard' | 'miniSplit' | 'windowAc';
 
 export interface ClimateBrand {
   id: string;
   name: string;
-  kinds: DeviceKind[];
   /** Equipment this brand's thermostats or controllers typically drive. */
   equipment: Equipment[];
   /** 'home': one thermostat for the whole home. 'room': controls a single room. */
@@ -122,7 +117,8 @@ export interface HouseholdDto {
   /** +1 midwinter .. -1 midsummer, as the engine sees tonight. */
   seasonIndex: number;
   /** Tonight's forecast used for planning. */
-  outlook: { outdoorC: number; humidityPct: number };
+  /** Humidity is null unless the room's thermostat reports it. */
+  outlook: { outdoorC: number; humidityPct: number | null };
   tariffId: string;
   energy: { enabled: boolean; toleranceC: number };
   /** Usual daytime thermostat setting: where the room starts each evening and the baseline for savings. */
@@ -161,8 +157,6 @@ export interface SleeperDto {
   limits: ComfortLimits;
   options: SleeperOptions;
   cycle: { lastPeriodStart: string | null; lengthDays: number };
-  /** Opt-in: allow a summary of this sleeper's data to be sent to the AI assistant. */
-  aiAssistant: boolean;
   wearable: WearableBrand;
   /** What the model currently believes, for tonight's season. */
   estimate: IdealEstimate;
@@ -190,7 +184,6 @@ export interface SleeperPatch {
   limits?: ComfortLimits;
   options?: Partial<SleeperOptions>;
   cycle?: { lastPeriodStart: string | null; lengthDays?: number };
-  aiAssistant?: boolean;
   tonight?: Partial<SleeperDto['tonight']>;
   /** Catalog id of a wearable brand. */
   wearableBrand?: string;
@@ -198,25 +191,26 @@ export interface SleeperPatch {
 
 /* --------------------------------------------------------------------- room */
 
+/**
+ * The room's one climate device: a smart thermostat or smart AC control.
+ * The platform assumes nothing else in the room (no fans, no humidifiers).
+ */
 export interface DeviceDto {
   id: string;
   roomId: string;
-  kind: DeviceKind;
   /** Catalog id of the brand. */
   brand: string;
   name: string;
-  /** Thermostats only. */
-  equipment?: Equipment;
-  /** Fans only: whose side of the bed it is on. */
-  sleeperId?: string;
+  equipment: Equipment;
+  /** Whether this thermostat reports room humidity. Without it, humidity plays no part anywhere. */
+  reportsHumidity: boolean;
 }
 
 export interface NewDevice {
-  kind: DeviceKind;
   brand: string;
   name?: string;
   equipment?: Equipment;
-  sleeperId?: string;
+  reportsHumidity?: boolean;
 }
 
 export interface HoldDto {
@@ -232,13 +226,17 @@ export interface RoomDto {
   id: string;
   name: string;
   sleeperIds: string[];
+  /** At most one: the room's thermostat. */
   devices: DeviceDto[];
-  /** Last known conditions. */
-  climate: { tempC: number; humidityPct: number; mode: HvacMode };
+  /** Last known conditions. Humidity is null unless the thermostat reports it. */
+  climate: { tempC: number; humidityPct: number | null; mode: HvacMode };
   response: RoomResponse;
   /** A manual temperature waiting to take effect (or in effect during a live night). */
   hold: HoldDto | null;
-  /** A user-defined curve preset replacing the algorithm's temperatures, if active. */
+  /**
+   * The preset the room runs on, night after night, instead of the automatic
+   * schedule. Null means automatic (the recommended setting).
+   */
   activePresetId: string | null;
 }
 
@@ -282,7 +280,7 @@ export interface PlanDto {
   /** Difference between partners' ideal temperatures; 0 for one sleeper. */
   gapC: number;
   limits: ComfortLimits;
-  context: { outdoorC: number; humidityPct: number; seasonIndex: number; season: SeasonName; mode: HvacMode };
+  context: { outdoorC: number; humidityPct: number | null; seasonIndex: number; season: SeasonName; mode: HvacMode };
   energy: {
     enabled: boolean;
     direction: 'heat' | 'cool' | 'none';
@@ -292,12 +290,9 @@ export interface PlanDto {
     /** How the plan was reshaped around prices; empty when it was not. */
     changes: EnergyChange[];
   };
-  humidity: { advice: 'humidify' | 'dehumidify' | 'ok'; targetPct?: number; deviceId?: string };
-  /** Times a sleeper's personal fan will run to make up for the shared compromise. */
-  fans: PersonalCooling[];
-  /** The manual temperature that will override this plan, if one is set. */
+  /** The manual temperature that will override this plan for tonight, if one is set. */
   hold: HoldDto | null;
-  /** Name of the curve preset replacing the algorithm's temperatures, if any. */
+  /** Name of the preset this plan follows instead of the automatic schedule, if any. */
   presetName: string | null;
 }
 
@@ -314,13 +309,12 @@ export interface TickDto {
   phase: Phase | null;
   liveOffsetC: number;
   outdoorC: number;
-  humidityPct: number;
+  /** Null unless the thermostat reports humidity. */
+  humidityPct: number | null;
   running: 'heat' | 'cool' | 'idle';
   kWh: number;
   /** Live readings, only for sleepers whose wearable reports during the night. */
   vitals: Record<string, { heartRate?: number; movement?: number; skinTempDeltaC?: number }>;
-  /** Personal fan speed (0-3) per sleeper with a fan. */
-  fans: Record<string, number>;
 }
 
 export type EventDto =
@@ -334,8 +328,6 @@ export type EventDto =
   | { t: number; kind: 'feeling'; feeling: FeedbackKind; sleeperId: string }
   /** The plan was shifted around electricity prices. */
   | { t: number; kind: 'energy'; change: EnergyChange['kind']; deltaC: number; peakEvent: boolean }
-  /** A humidifier or dehumidifier was switched on for the night. */
-  | { t: number; kind: 'humidity'; action: 'humidify' | 'dehumidify'; targetPct: number }
   /** The night was ended early ("good morning"). */
   | { t: number; kind: 'wake' };
 
@@ -366,7 +358,8 @@ export interface NightSummaryDto {
   startMs: number;
   endMs: number;
   outdoorC: number;
-  humidityPct: number;
+  /** Null unless the thermostat reports humidity. */
+  humidityPct: number | null;
   seasonIndex: number;
   /** Deep-sleep target of the room plan. */
   coreTargetC: number;
@@ -433,12 +426,77 @@ export interface StateDto {
   climates: ClimateOption[];
   catalog: Catalog;
   live: LiveSessionDto | null;
-  assistant: {
-    /** Whether an AI model is configured on the server; otherwise answers are rule-based. */
-    ai: boolean;
-  };
+  /** Energy and money saved so far, against the thermostat left at its daytime setting every night. */
+  savings: SavingsDto;
   /** Names of the built-in demo scenarios accepted by POST /api/sim/reset. */
   scenarios: { id: string; name: LocalizedText; description: LocalizedText }[];
+}
+
+export interface SavingsDto {
+  /** Nights counted. */
+  nights: number;
+  /** Positive means less was used than the baseline; negative means more. */
+  savedKWh: number;
+  savedCents: number;
+  usedKWh: number;
+  baselineKWh: number;
+  costCents: number;
+  baselineCostCents: number;
+}
+
+/* ----------------------------------------------------------- recommendation */
+
+/** One sleeper's part of the morning recommendation: what their data suggest. */
+export interface SleeperFindingDto {
+  sleeperId: string;
+  /** The ideal deep-sleep temperature the data point to, and how sure that is. */
+  idealC: number;
+  sdC: number;
+  confidence: number;
+  nights: number;
+  /** Last night, if there was one. */
+  lastNight: { experiencedCoreC: number | null; quality: number | null; thermalQuality: number | null } | null;
+  /** Supporting observations, most relevant first. Render with `describeInsight`. */
+  insights: Insight[];
+}
+
+export interface ScheduleStepDto {
+  phase: Phase;
+  startMs: number;
+  endMs: number;
+  targetC: number;
+}
+
+/**
+ * The morning recommendation: "your data suggest X, so we recommend Y".
+ * The recommended setting is always the platform's automatic schedule. The
+ * user either applies it or carries on with their preset.
+ */
+export interface RecommendationDto {
+  roomId: string;
+  /** The coming night this recommendation is for. */
+  date: string;
+  /** The night it is based on; null before the first night. */
+  basedOnNightId: string | null;
+  /** What the room is running on now. */
+  mode: 'auto' | 'preset';
+  presetName: string | null;
+  findings: SleeperFindingDto[];
+  /** The automatic schedule for tonight. */
+  recommended: ScheduleStepDto[];
+  /** What tonight would be on the current preset; null when already automatic. */
+  current: ScheduleStepDto[] | null;
+  /** Recommended deep-sleep temperature minus the preset's; 0 when already automatic. */
+  deepDifferenceC: number;
+  /**
+   * 'pending': not answered yet for this date. 'applied': the user chose the
+   * recommended setting. 'kept': the user chose to stay on their preset.
+   */
+  status: 'pending' | 'applied' | 'kept';
+}
+
+export interface RecommendationAnswer {
+  action: 'apply' | 'keep';
 }
 
 export interface HouseholdPatch {
@@ -507,18 +565,20 @@ export interface JetLagRequest {
 export interface AssistantRequest {
   sleeperId: string;
   message: string;
-  /** Earlier turns of this conversation, oldest first. */
-  history?: { role: 'user' | 'assistant'; content: string }[];
 }
 
 /**
- * POST /api/assistant answers with a `text/event-stream`. Each event's `data`
- * is one of these, JSON-encoded.
+ * POST /api/assistant answers with plain JSON. The assistant is the platform's
+ * own: it runs on the server, uses no outside AI service, and answers only
+ * about sleep temperature and this sleeper's data, in the sleeper's language.
  */
-export type AssistantEvent =
-  | { type: 'delta'; text: string }
-  | { type: 'done'; source: 'ai' | 'rules' }
-  | { type: 'error'; message: string };
+export interface AssistantReplyDto {
+  /** What the question was understood to be about ("unknown" when it was not understood). */
+  topic: string;
+  text: string;
+  /** Questions the user might ask next, in the sleeper's language. */
+  followUps: string[];
+}
 
 export interface ApiError {
   error: string;

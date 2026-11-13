@@ -109,20 +109,9 @@ export function sensedTempC(state: RoomState, rng: Rng): number {
   return state.tempC + 0.05 * gaussian(rng);
 }
 
-/** Humidity drifts toward the season's ambient level; a humidifier or dehumidifier pulls it toward its own target. */
-export function stepHumidity(
-  humidityPct: number,
-  ambientPct: number,
-  minutes: number,
-  device?: { targetPct: number; kind: 'humidifier' | 'dehumidifier' },
-): number {
-  let h = humidityPct + ((ambientPct - humidityPct) * minutes) / 180;
-  if (device) {
-    const perMinute = 8 / 60;
-    if (device.kind === 'humidifier' && h < device.targetPct) h = Math.min(device.targetPct, h + perMinute * minutes);
-    if (device.kind === 'dehumidifier' && h > device.targetPct) h = Math.max(device.targetPct, h - perMinute * minutes);
-  }
-  return Math.min(95, Math.max(10, h));
+/** Humidity drifts toward the season's ambient level. */
+export function stepHumidity(humidityPct: number, ambientPct: number, minutes: number): number {
+  return Math.min(95, Math.max(10, humidityPct + ((ambientPct - humidityPct) * minutes) / 180));
 }
 
 /** The mode a thermostat would be left in for the weather: heating season, cooling season, or in between. */

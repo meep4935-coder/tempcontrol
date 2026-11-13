@@ -8,7 +8,6 @@ import {
   HOUR,
   MIN,
   observePreference,
-  personalCooling,
   roomSegmentAt,
   sharedLimits,
   zonedTimeToMs,
@@ -124,18 +123,6 @@ describe('shared room', () => {
       { plan: planFor('b', 16.5), limits: { minC: 18, maxC: 24 }, weight: 1 },
     ]);
     for (const seg of room.segments) expect(seg.targetC).toBeGreaterThanOrEqual(18);
-  });
-
-  it('suggests a personal fan for the partner who wants it cooler than the compromise', () => {
-    const room = buildRoomPlan([sleeper(planFor('a', 17)), sleeper(planFor('b', 21))]);
-    const fans = personalCooling(room);
-    expect(fans.length).toBeGreaterThan(0);
-    expect(fans.every((f) => f.sleeperId === 'a')).toBe(true);
-    expect(fans.every((f) => f.level >= 1 && f.level <= 3)).toBe(true);
-    // Only while asleep: not during wind-down or the wake-up.
-    expect(Math.min(...fans.map((f) => f.startMs))).toBeGreaterThanOrEqual(at('2026-11-13', '22:45'));
-    expect(Math.max(...fans.map((f) => f.endMs))).toBeLessThanOrEqual(at('2026-11-14', '06:45'));
-    expect(personalCooling(buildRoomPlan([sleeper(planFor('a', 19)), sleeper(planFor('b', 19.5))]))).toEqual([]);
   });
 
   it('does not flick the thermostat half a degree for a short spell', () => {

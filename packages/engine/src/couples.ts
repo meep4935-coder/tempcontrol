@@ -166,37 +166,3 @@ function sameDecision(a: RoomSegment, b: RoomSegment): boolean {
 export function roomSegmentAt(plan: RoomPlan, t: number): RoomSegment | undefined {
   return plan.segments.find((seg) => t >= seg.startMs && t < seg.endMs);
 }
-
-export interface PersonalCooling {
-  sleeperId: string;
-  startMs: number;
-  endMs: number;
-  /** Suggested fan speed, 1 (gentle) to 3. */
-  level: 1 | 2 | 3;
-}
-
-/**
- * Times when the room's compromise is noticeably warmer than one sleeper wants.
- * A personal fan on that side of the bed can make up the difference without
- * cooling the room for their partner.
- */
-export function personalCooling(plan: RoomPlan, thresholdC = 0.75): PersonalCooling[] {
-  const out: PersonalCooling[] = [];
-  const open = new Map<string, PersonalCooling>();
-  for (const seg of plan.segments) {
-    for (const c of seg.contributions) {
-      const shortfall = seg.targetC - c.targetC;
-      if (c.phase === 'windDown' || c.phase === 'wake' || shortfall < thresholdC) continue;
-      const level = shortfall >= 2.5 ? 3 : shortfall >= 1.5 ? 2 : 1;
-      const last = open.get(c.sleeperId);
-      if (last && last.endMs === seg.startMs && last.level === level) {
-        last.endMs = seg.endMs;
-      } else {
-        const entry: PersonalCooling = { sleeperId: c.sleeperId, startMs: seg.startMs, endMs: seg.endMs, level };
-        open.set(c.sleeperId, entry);
-        out.push(entry);
-      }
-    }
-  }
-  return out;
-}

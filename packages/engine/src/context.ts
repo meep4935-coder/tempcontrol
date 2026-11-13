@@ -35,7 +35,7 @@ export interface RecoverySignals {
 export interface NightContext {
   cyclePhase?: CyclePhase;
   recovery?: RecoverySignals;
-  /** Bedroom relative humidity, percent. */
+  /** Bedroom relative humidity, percent. Only known when the thermostat reports it. */
   humidityPct?: number;
 }
 
@@ -45,9 +45,6 @@ const ASLEEP: readonly Phase[] = ['windDown', 'onset', 'deep', 'rem'];
 
 /** Total adjustment is kept inside this band however many modifiers stack up. */
 export const MODIFIER_RANGE: readonly [number, number] = [-1.5, 1.0];
-
-/** Bedroom humidity is most comfortable for sleep in roughly this band. */
-export const HUMIDITY_COMFORT: readonly [number, number] = [30, 55];
 
 export function contextModifiers(ctx: NightContext, options: SleeperOptions): Modifier[] {
   const mods: Modifier[] = [];
@@ -132,14 +129,4 @@ export function deriveRecovery(d: DailyReadings): RecoverySignals {
       d.restingHrDeltaBpm !== undefined &&
       d.restingHrDeltaBpm >= 5,
   };
-}
-
-export type HumidityAdvice = 'humidify' | 'dehumidify' | 'ok';
-
-/** What to do about bedroom humidity, and the level a humidifier or dehumidifier should aim for. */
-export function humidityAdvice(humidityPct: number | undefined): { advice: HumidityAdvice; targetPct?: number } {
-  if (humidityPct === undefined || !Number.isFinite(humidityPct)) return { advice: 'ok' };
-  if (humidityPct < HUMIDITY_COMFORT[0]) return { advice: 'humidify', targetPct: 40 };
-  if (humidityPct > HUMIDITY_COMFORT[1]) return { advice: 'dehumidify', targetPct: 50 };
-  return { advice: 'ok' };
 }

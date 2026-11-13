@@ -14,6 +14,7 @@ export * from './tariffs';
 export * from './travel';
 export * from './insights';
 export * from './insightText';
+export * from './assistant';
 export * from './voice/types';
 export * from './voice/parse';
 export * from './voice/replies';

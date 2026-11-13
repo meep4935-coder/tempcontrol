@@ -52,7 +52,7 @@ export function outdoorAtC(overnightMeanC: number, fractionOfNight: number): num
 }
 
 /**
- * Bedroom humidity before any humidifier or dehumidifier acts: dry in the
+ * Bedroom humidity through the year: dry in the
  * heating season, humid in summer.
  */
 export function ambientHumidityPct(date: string, climate: Climate, seed: number): number {

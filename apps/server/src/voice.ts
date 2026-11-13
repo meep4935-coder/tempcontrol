@@ -61,12 +61,11 @@ export async function handleVoice(store: Store, live: LiveManager, req: VoiceReq
       const preset = presets.find((p) => p.name === intent.name);
       if (!preset) {
         outcome = { type: 'presetNotFound' };
-      } else if (preset.kind === 'hold' && preset.targetC !== undefined) {
-        hold(preset.targetC, 'preset', preset.name);
-        outcome = { type: 'presetActivated', name: preset.name };
       } else {
-        // A curve replaces the algorithm's temperatures from the next plan on.
+        // The preset becomes the room's standing setting from the next plan on.
         store.saveRoom({ ...room, activePresetId: preset.id });
+        // If a night is already running, a fixed-temperature preset also takes effect at once.
+        if (runner && preset.kind === 'hold' && preset.targetC !== undefined) hold(preset.targetC, 'preset', preset.name);
         outcome = { type: 'presetActivated', name: preset.name };
       }
       break;
@@ -89,7 +88,7 @@ export async function handleVoice(store: Store, live: LiveManager, req: VoiceReq
         type: 'status',
         roomTempC: reading?.roomTempC ?? room.climate.tempC,
         targetC: runner ? runner.currentTargetC() : (room.pendingHold?.targetC ?? null),
-        humidityPct: Math.round(reading?.humidityPct ?? room.climate.humidityPct),
+        humidityPct: (reading ? reading.humidityPct : room.climate.humidityPct) ?? undefined,
         mode: held ? (held.source === 'preset' ? 'preset' : 'hold') : runner ? 'auto' : 'idle',
       };
       break;

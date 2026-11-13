@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createLiveState, fanLevel, LIVE_LIMITS, liveOffset, liveStep, MIN, type LiveInput, type LiveSleeperInput, type LiveState, type LiveVitals } from '../src/index';
+import { createLiveState, LIVE_LIMITS, liveOffset, liveStep, MIN, type LiveInput, type LiveSleeperInput, type LiveState, type LiveVitals } from '../src/index';
 
 const calm: LiveVitals = { movement: 0.06, skinTempDeltaC: 0, heartRate: 58, heartRateBaseline: 58 };
 const hot: LiveVitals = { movement: 0.4, skinTempDeltaC: 0.5, heartRate: 66, heartRateBaseline: 58 };
@@ -94,25 +94,6 @@ describe('live adjustments', () => {
     expect(offset).toBe(-LIVE_LIMITS.soloOffsetC);
   });
 
-  it('turns up a warm sleeper\'s own fan before cooling the room their calm partner shares', () => {
-    const a = sleeper('a', hot, { hasFan: true });
-    const { state, offset, events } = run(createLiveState(), 0, 180, [a, sleeper('b', calm)]);
-    // Two fan steps first, and only then the (limited) room nudge.
-    expect(events.map((e) => e.reason)).toEqual(['fanUp', 'fanUp', 'restlessWarm']);
-    expect(events.slice(0, 2).every((e) => e.deltaC === 0 && e.sleeperId === 'a')).toBe(true);
-    expect(offset).toBe(-LIVE_LIMITS.soloOffsetC);
-    expect(fanLevel('a', 180 * MIN, state, [])).toBe(2);
-    expect(fanLevel('b', 180 * MIN, state, [])).toBe(0);
-    // The extra speed adds to any planned fan time, up to full speed.
-    expect(fanLevel('a', 30 * MIN, state, [{ sleeperId: 'a', startMs: 0, endMs: 60 * MIN, level: 2 }])).toBe(3);
-  });
-
-  it('cools the room directly for a sleeper with a fan who has the room to themselves', () => {
-    const { offset, events } = run(createLiveState(), 0, 20, [sleeper('a', hot, { hasFan: true })]);
-    expect(events.map((e) => e.reason)).toEqual(['restlessWarm']);
-    expect(offset).toBe(-0.5);
-  });
-
   it('moves the room fully when both partners agree', () => {
     const { offset } = run(createLiveState(), 0, 180, [sleeper('a', hot), sleeper('b', hot)]);
     expect(offset).toBe(LIVE_LIMITS.minOffsetC);
@@ -139,7 +120,7 @@ describe('live adjustments', () => {
     sleeper('a', { movement: 0.1, skinTempDeltaC: skin, heartRate: 60, heartRateBaseline: 58 }, { menopauseMode: true, ...over });
   const flashInput = (t: number, sleepers: LiveSleeperInput[]): LiveInput => ({ t: t * MIN, phase: 'deep', roomTempC: 18.5, targetC: 18.5, sleepers });
 
-  it('answers a hot flash with a burst of room cooling when there is no fan', () => {
+  it('answers a hot flash with a burst of room cooling', () => {
     let step = liveStep(createLiveState(), flashInput(0, [flashing(0)]));
     step = liveStep(step.state, flashInput(5, [flashing(0.7)]));
     expect(step.events.map((e) => e.reason)).toEqual(['hotFlash']);
@@ -164,28 +145,6 @@ describe('live adjustments', () => {
     step = liveStep(step.state, flashInput(26, [flashing(0.9)]));
     expect(step.events.map((e) => e.reason)).toContain('hotFlashOver');
     expect(step.offsetC).toBe(0);
-  });
-
-  it('lets a personal fan handle a hot flash and leaves the room alone', () => {
-    const withFan = (skin: number): LiveSleeperInput => flashing(skin, { hasFan: true });
-    let step = liveStep(createLiveState(), flashInput(0, [withFan(0)]));
-    expect(fanLevel('a', 0, step.state, [])).toBe(0);
-    step = liveStep(step.state, flashInput(5, [withFan(0.9)]));
-    expect(step.events.map((e) => e.reason)).toEqual(['hotFlash']);
-    expect(step.offsetC).toBe(0);
-    expect(fanLevel('a', 5 * MIN, step.state, [])).toBe(3);
-    // Easing off as the flash passes, then off.
-    step = liveStep(step.state, flashInput(10, [withFan(0.6)]));
-    expect(fanLevel('a', 10 * MIN, step.state, [])).toBe(2);
-    step = liveStep(step.state, flashInput(15, [withFan(0.1)]));
-    expect(fanLevel('a', 15 * MIN, step.state, [])).toBe(0);
-  });
-
-  it('runs a personal fan for a partner who wants it cooler than the room', () => {
-    const cooling = [{ sleeperId: 'a', startMs: 0, endMs: 60 * MIN, level: 2 as const }];
-    expect(fanLevel('a', 30 * MIN, createLiveState(), cooling)).toBe(2);
-    expect(fanLevel('a', 61 * MIN, createLiveState(), cooling)).toBe(0);
-    expect(fanLevel('b', 30 * MIN, createLiveState(), cooling)).toBe(0);
   });
 
   it('does not treat a fast skin-temperature rise as a hot flash unless the mode is on', () => {

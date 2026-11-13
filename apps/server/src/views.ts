@@ -6,6 +6,7 @@ import type {
   LiveSessionDto,
   PresetDto,
   RoomDto,
+  SavingsDto,
   SleeperDto,
   StateDto,
   TariffDto,
@@ -19,7 +20,7 @@ import type { DeviceRecord, HouseholdRecord, PresetRecord, RoomRecord, SleeperRe
 
 const round = (v: number, digits = 2): number => Math.round(v * 10 ** digits) / 10 ** digits;
 
-export function householdDto(h: HouseholdRecord, outlook: Outlook): HouseholdDto {
+export function householdDto(h: HouseholdRecord, outlook: Outlook, reportsHumidity: boolean): HouseholdDto {
   const { climate } = outlook;
   return {
     id: h.id,
@@ -32,7 +33,7 @@ export function householdDto(h: HouseholdRecord, outlook: Outlook): HouseholdDto
     date: h.date,
     season: seasonName(h.date, climate.latitude),
     seasonIndex: round(outlook.seasonIndex),
-    outlook: { outdoorC: round(outlook.outdoorC, 1), humidityPct: Math.round(outlook.humidityPct) },
+    outlook: { outdoorC: round(outlook.outdoorC, 1), humidityPct: reportsHumidity ? Math.round(outlook.humidityPct) : null },
     tariffId: h.tariffId,
     energy: h.energy,
     daySetpointC: h.daySetpointC,
@@ -56,7 +57,6 @@ export function sleeperDto(s: SleeperRecord, h: HouseholdRecord, outlook: Outloo
     limits: s.limits,
     options: s.options,
     cycle: s.cycle,
-    aiAssistant: s.aiAssistant,
     wearable: wearableBrand(s.wearableBrand),
     estimate: {
       ...estimate,
@@ -84,7 +84,7 @@ export const presetDto = ({ householdId: _householdId, ...p }: PresetRecord): Pr
 
 export function roomDto(store: Store, room: RoomRecord, h: HouseholdRecord, outlook: Outlook): RoomDto {
   const devices = store.devices(room.id);
-  const thermostat = devices.find((d) => d.kind === 'thermostat');
+  const thermostat = devices[0];
   const equipment = ROOM_PRESETS[thermostat?.equipment ?? 'central']!;
   return {
     id: room.id,
@@ -94,7 +94,11 @@ export function roomDto(store: Store, room: RoomRecord, h: HouseholdRecord, outl
       .filter((s) => s.roomId === room.id)
       .map((s) => s.id),
     devices: devices.map(deviceDto),
-    climate: { ...room.climate, mode: thermostat ? seasonalMode(outlook.outdoorC, equipment) : 'off' },
+    climate: {
+      tempC: room.climate.tempC,
+      humidityPct: thermostat?.reportsHumidity ? room.climate.humidityPct : null,
+      mode: thermostat ? seasonalMode(outlook.outdoorC, equipment) : 'off',
+    },
     response: room.response,
     hold: room.pendingHold,
     activePresetId: room.activePresetId,
@@ -111,20 +115,42 @@ export const tariffDto = (t: Tariff): TariffDto => ({
   source: t.source,
 });
 
-export function stateDto(store: Store, live: LiveSessionDto | null, ai: boolean): StateDto {
+/** Energy and money saved so far across the household, against the thermostat left at its daytime setting. */
+export function totalSavings(store: Store): SavingsDto {
+  const h = store.household();
+  const nights = h ? store.rooms(h.id).flatMap((room) => store.nightSummaries(room.id, 2000)) : [];
+  const sum = (pick: (n: (typeof nights)[number]) => number): number => round(nights.reduce((total, n) => total + pick(n), 0));
+  const usedKWh = sum((n) => n.kWh);
+  const baselineKWh = sum((n) => n.baselineKWh);
+  const costCents = sum((n) => n.costCents);
+  const baselineCostCents = sum((n) => n.baselineCostCents);
+  return {
+    nights: nights.length,
+    savedKWh: round(baselineKWh - usedKWh),
+    savedCents: round(baselineCostCents - costCents),
+    usedKWh,
+    baselineKWh,
+    costCents,
+    baselineCostCents,
+  };
+}
+
+export function stateDto(store: Store, live: LiveSessionDto | null): StateDto {
   const h = store.household();
   if (!h) throw new Error('No household has been set up.');
   const outlook = outlookFor(h);
+  const rooms = store.rooms(h.id);
+  const reportsHumidity = rooms.some((r) => store.devices(r.id)[0]?.reportsHumidity);
   return {
-    household: householdDto(h, outlook),
+    household: householdDto(h, outlook, reportsHumidity),
     sleepers: store.sleepers(h.id).map((s) => sleeperDto(s, h, outlook)),
-    rooms: store.rooms(h.id).map((r) => roomDto(store, r, h, outlook)),
+    rooms: rooms.map((r) => roomDto(store, r, h, outlook)),
     presets: store.presets(h.id).map(presetDto),
     tariffs: TARIFFS.map(tariffDto),
     climates: Object.values(CLIMATES).map((c) => ({ id: c.id, name: c.name, region: c.region })),
     catalog: CATALOG,
     live,
-    assistant: { ai },
+    savings: totalSavings(store),
     scenarios: SCENARIOS.map((s) => ({ id: s.id, name: s.name, description: s.description })),
   };
 }
@@ -144,7 +170,7 @@ export function nightRecords(store: Store, sleeper: SleeperRecord, limit = 60): 
         experiencedCoreC: mine.experiencedCoreC,
         thermalQuality: mine.thermalQuality,
         overallQuality: mine.quality,
-        humidityPct: night.humidityPct,
+        humidityPct: night.humidityPct ?? undefined,
         modifiers: mine.modifiers,
         overrides: manual.length,
         overrideDeltaC: manual.length > 0 ? overrideDeltaC : undefined,

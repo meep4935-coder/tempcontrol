@@ -19,7 +19,6 @@
  * whenever its cause was the plan itself.
  */
 
-import type { PersonalCooling } from './couples';
 import type { LiveVitals, Phase } from './types';
 import { clamp, mean, MIN } from './util';
 
@@ -30,8 +29,6 @@ export interface LiveSleeperInput {
   /** In bed and meant to be asleep at this moment. */
   inBed: boolean;
   menopauseMode: boolean;
-  /** Has a personal fan the platform can switch on. */
-  hasFan?: boolean;
 }
 
 export interface LiveInput {
@@ -46,11 +43,9 @@ export interface LiveInput {
 /**
  * Why the controller acted:
  *  - restlessWarm / restlessCold: the room was nudged cooler / warmer;
- *  - fanUp: a sleeper sharing the room was restless and warm, so their own fan
- *    was turned up instead of cooling the room for their partner;
- *  - hotFlash / hotFlashOver: a hot-flash response began / ended.
+ *  - hotFlash / hotFlashOver: a burst of cooling for a hot flash began / ended.
  */
-export type LiveReason = 'restlessWarm' | 'restlessCold' | 'fanUp' | 'hotFlash' | 'hotFlashOver';
+export type LiveReason = 'restlessWarm' | 'restlessCold' | 'hotFlash' | 'hotFlashOver';
 
 export interface LiveEvent {
   t: number;
@@ -74,14 +69,9 @@ export interface LiveState {
   offsetC: number;
   lastChangeMs: number | null;
   changes: number;
-  /**
-   * A hot-flash response in progress. `deltaC` is the extra room cooling; it is
-   * zero when the sleeper's own fan is handling it.
-   */
+  /** A hot-flash response in progress: `deltaC` of extra room cooling until it ends. */
   boost: { untilMs: number; deltaC: number; sleeperId: string } | null;
   lastBoostMs: number | null;
-  /** Extra fan speed steps granted to a sleeper this night, on top of the planned level. */
-  fanBoost: Record<string, number>;
   readings: Record<string, Reading[]>;
 }
 
@@ -95,8 +85,6 @@ export const LIVE_LIMITS = {
   maxChanges: 6,
   windowMs: 15 * MIN,
   restlessMovement: 0.25,
-  /** Most extra fan speed steps a restless, warm sleeper is given before the room itself is cooled. */
-  maxFanBoost: 2,
   boostC: -1.5,
   boostSharedC: -1.0,
   /** Longest a hot-flash response runs; it ends sooner once skin temperature comes back down. */
@@ -107,7 +95,7 @@ export const LIVE_LIMITS = {
 } as const;
 
 export function createLiveState(): LiveState {
-  return { offsetC: 0, lastChangeMs: null, changes: 0, boost: null, lastBoostMs: null, fanBoost: {}, readings: {} };
+  return { offsetC: 0, lastChangeMs: null, changes: 0, boost: null, lastBoostMs: null, readings: {} };
 }
 
 /** The nudge in force right now, including any cooling burst. */
@@ -173,7 +161,7 @@ export interface LiveDecision {
 export function liveStep(prev: LiveState, input: LiveInput): LiveDecision {
   const { t } = input;
   const events: LiveEvent[] = [];
-  const state: LiveState = { ...prev, readings: { ...prev.readings }, fanBoost: { ...prev.fanBoost } };
+  const state: LiveState = { ...prev, readings: { ...prev.readings } };
 
   for (const sleeper of input.sleepers) {
     const kept = (state.readings[sleeper.id] ?? []).filter((r) => r.t > t - LIVE_LIMITS.windowMs);
@@ -206,10 +194,8 @@ export function liveStep(prev: LiveState, input: LiveInput): LiveDecision {
   const flash = assessments.find((a) => a.hotFlash);
   const boostReady = !state.boost && (state.lastBoostMs === null || t - state.lastBoostMs >= LIVE_LIMITS.boostGapMs);
   if (flash && boostReady) {
-    // A fan answers in seconds; a room takes many minutes and then stays cold.
-    // So the fan handles it alone when there is one, and the room only steps in otherwise.
-    const hasFan = input.sleepers.find((s) => s.id === flash.id)?.hasFan === true;
-    const deltaC = hasFan ? 0 : othersInBed ? LIVE_LIMITS.boostSharedC : LIVE_LIMITS.boostC;
+    // Gentler when a partner shares the room.
+    const deltaC = othersInBed ? LIVE_LIMITS.boostSharedC : LIVE_LIMITS.boostC;
     state.boost = { untilMs: t + LIVE_LIMITS.boostMs, deltaC, sleeperId: flash.id };
     state.lastBoostMs = t;
     events.push({ t, reason: 'hotFlash', deltaC, offsetC: state.offsetC, sleeperId: flash.id });
@@ -230,25 +216,8 @@ export function liveStep(prev: LiveState, input: LiveInput): LiveDecision {
 
   if (direction !== 0) {
     const asking = direction === -1 ? wantsCooler : wantsWarmer;
-    const unanimous = !othersInBed || asking.length === input.sleepers.filter((s) => s.inBed).length;
-
-    // One partner is too warm while the other sleeps calmly: turn up that
-    // person's own fan before touching the room they share.
-    if (direction === -1 && !unanimous) {
-      const withFan = asking.find((a) => {
-        const sleeper = input.sleepers.find((s) => s.id === a.id);
-        return sleeper?.hasFan === true && (state.fanBoost[a.id] ?? 0) < LIVE_LIMITS.maxFanBoost;
-      });
-      if (withFan) {
-        state.fanBoost[withFan.id] = (state.fanBoost[withFan.id] ?? 0) + 1;
-        state.lastChangeMs = t;
-        state.changes += 1;
-        events.push({ t, reason: 'fanUp', deltaC: 0, offsetC: state.offsetC, sleeperId: withFan.id });
-        return { state, offsetC: liveOffset(state, t), events };
-      }
-    }
-
     // With a calm partner in the bed, one person's discomfort moves the room less.
+    const unanimous = !othersInBed || asking.length === input.sleepers.filter((s) => s.inBed).length;
     const lo = unanimous ? LIVE_LIMITS.minOffsetC : -LIVE_LIMITS.soloOffsetC;
     const hi = unanimous ? LIVE_LIMITS.maxOffsetC : LIVE_LIMITS.soloOffsetC;
     const next = clamp(state.offsetC + direction * LIVE_LIMITS.stepC, Math.min(lo, state.offsetC), Math.max(hi, state.offsetC));
@@ -266,21 +235,4 @@ export function liveStep(prev: LiveState, input: LiveInput): LiveDecision {
     }
   }
   return { state, offsetC: liveOffset(state, t), events };
-}
-
-/**
- * Speed (0-3) for a sleeper's personal fan right now. A fan acts within
- * seconds where a room takes many minutes, so it is the first response to a
- * hot flash, and it makes up the difference for a partner who wants the room
- * cooler than the shared compromise.
- */
-export function fanLevel(sleeperId: string, t: number, state: LiveState, cooling: readonly PersonalCooling[]): 0 | 1 | 2 | 3 {
-  if (state.boost && state.boost.sleeperId === sleeperId && t < state.boost.untilMs) {
-    // Full speed at the peak, easing off as skin temperature comes back down.
-    const readings = state.readings[sleeperId] ?? [];
-    const skin = readings[readings.length - 1]?.skin;
-    return skin === undefined || skin >= 0.8 ? 3 : skin >= 0.5 ? 2 : 1;
-  }
-  const planned = cooling.find((c) => c.sleeperId === sleeperId && t >= c.startMs && t < c.endMs)?.level ?? 0;
-  return Math.min(3, planned + (state.fanBoost[sleeperId] ?? 0)) as 0 | 1 | 2 | 3;
 }
