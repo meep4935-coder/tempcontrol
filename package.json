@@ -1,0 +1,28 @@
+{
+  "name": "tempcontrol",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Sleep temperature platform: learns each sleeper's ideal bedroom temperature from their wearable and drives the thermostat through the night.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,green \"npm run dev -w @tempcontrol/server\" \"npm run dev -w @tempcontrol/web\"",
+    "build": "npm run build -w @tempcontrol/web",
+    "start": "npm run start -w @tempcontrol/server",
+    "test": "vitest run",
+    "typecheck": "tsc -b packages/engine apps/server apps/web"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "concurrently": "^10.0.7",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
+}

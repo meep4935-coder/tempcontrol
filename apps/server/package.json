@@ -1,0 +1,17 @@
+{
+  "name": "@tempcontrol/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --disable-warning=ExperimentalWarning src/main.ts",
+    "start": "tsx --disable-warning=ExperimentalWarning src/main.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
+    "@fastify/static": "^10.1.11",
+    "@tempcontrol/engine": "*",
+    "fastify": "^5.12.8",
+    "zod": "^4.6.7"
+  }
+}
