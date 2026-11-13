@@ -22,6 +22,7 @@ import {
   deriveRecovery,
   energyCostCents,
   estimateIdeal,
+  FAN_COOLING_PER_LEVEL_C,
   fanLevel,
   flatTariff,
   getTariff,
@@ -549,13 +550,14 @@ export class NightRunner {
     for (const e of step.events) {
       this.events.push({ t: e.t, kind: 'live', reason: e.reason, deltaC: e.deltaC, offsetC: e.offsetC, sleeperId: e.sleeperId });
       // The first time a sleeper's body asks for a change is read as a weak comfort signal.
-      const restless = e.reason === 'restlessWarm' || e.reason === 'restlessCold';
+      const restless = e.reason === 'restlessWarm' || e.reason === 'restlessCold' || e.reason === 'fanUp';
       if (restless && e.sleeperId && !this.nudged.has(e.sleeperId)) {
         this.nudged.add(e.sleeperId);
         this.preferences.get(e.sleeperId)?.push({
-          kind: e.reason === 'restlessWarm' ? 'tooHot' : 'tooCold',
+          kind: e.reason === 'restlessCold' ? 'tooCold' : 'tooHot',
           t: e.t,
-          tempC: obs.roomTempC,
+          // What they felt at that moment: the room, less their own fan's cooling.
+          tempC: obs.roomTempC - FAN_COOLING_PER_LEVEL_C * (fans[e.sleeperId] ?? 0),
           noiseC: INFERRED_SIGNAL_NOISE_C,
         });
       }

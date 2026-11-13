@@ -94,6 +94,25 @@ describe('live adjustments', () => {
     expect(offset).toBe(-LIVE_LIMITS.soloOffsetC);
   });
 
+  it('turns up a warm sleeper\'s own fan before cooling the room their calm partner shares', () => {
+    const a = sleeper('a', hot, { hasFan: true });
+    const { state, offset, events } = run(createLiveState(), 0, 180, [a, sleeper('b', calm)]);
+    // Two fan steps first, and only then the (limited) room nudge.
+    expect(events.map((e) => e.reason)).toEqual(['fanUp', 'fanUp', 'restlessWarm']);
+    expect(events.slice(0, 2).every((e) => e.deltaC === 0 && e.sleeperId === 'a')).toBe(true);
+    expect(offset).toBe(-LIVE_LIMITS.soloOffsetC);
+    expect(fanLevel('a', 180 * MIN, state, [])).toBe(2);
+    expect(fanLevel('b', 180 * MIN, state, [])).toBe(0);
+    // The extra speed adds to any planned fan time, up to full speed.
+    expect(fanLevel('a', 30 * MIN, state, [{ sleeperId: 'a', startMs: 0, endMs: 60 * MIN, level: 2 }])).toBe(3);
+  });
+
+  it('cools the room directly for a sleeper with a fan who has the room to themselves', () => {
+    const { offset, events } = run(createLiveState(), 0, 20, [sleeper('a', hot, { hasFan: true })]);
+    expect(events.map((e) => e.reason)).toEqual(['restlessWarm']);
+    expect(offset).toBe(-0.5);
+  });
+
   it('moves the room fully when both partners agree', () => {
     const { offset } = run(createLiveState(), 0, 180, [sleeper('a', hot), sleeper('b', hot)]);
     expect(offset).toBe(LIVE_LIMITS.minOffsetC);

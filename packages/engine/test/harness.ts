@@ -14,6 +14,7 @@ import {
   DEFAULT_LIMITS,
   DEFAULT_OPTIONS,
   estimateIdeal,
+  FAN_COOLING_PER_LEVEL_C,
   fanLevel,
   INFERRED_SIGNAL_NOISE_C,
   learnFromNight,
@@ -196,12 +197,12 @@ export function runNights(opts: HarnessOptions): HarnessResult {
         liveEvents += step.events.length;
         // The first time a sleeper's body asks for a change is read as a weak comfort signal.
         for (const e of step.events) {
-          if ((e.reason !== 'restlessWarm' && e.reason !== 'restlessCold') || !e.sleeperId || nudged.has(e.sleeperId)) continue;
+          if (e.reason === 'hotFlash' || e.reason === 'hotFlashOver' || !e.sleeperId || nudged.has(e.sleeperId)) continue;
           nudged.add(e.sleeperId);
           prefs.get(e.sleeperId)!.push({
-            kind: e.reason === 'restlessWarm' ? 'tooHot' : 'tooCold',
+            kind: e.reason === 'restlessCold' ? 'tooCold' : 'tooHot',
             t: e.t,
-            tempC: reading.roomTempC,
+            tempC: reading.roomTempC - FAN_COOLING_PER_LEVEL_C * (fans[e.sleeperId] ?? 0),
             noiseC: INFERRED_SIGNAL_NOISE_C,
           });
         }
