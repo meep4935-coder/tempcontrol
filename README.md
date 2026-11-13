@@ -1,0 +1,108 @@
+# TempControl
+
+A sleep-temperature platform. It reads each sleeper's wearable, learns the bedroom temperature that person sleeps best at, and drives the smart thermostat through the night: cool for deep sleep, warmer before waking, blended fairly for couples, and always overridable by hand or by voice.
+
+"TempControl" is a working name.
+
+This repository holds the working engine, the server, and a web dashboard that runs the whole thing against **simulated** wearables and thermostats, so the product can be seen working before any device developer accounts are opened.
+
+## Run it
+
+Needs Node 22.5 or newer.
+
+```bash
+npm install
+```
+
+```bash
+npm run build
+```
+
+```bash
+npm start
+```
+
+Then open http://localhost:4000. The first start creates a demo household (a couple in Montréal) with ten nights of history.
+
+For development, `npm run dev` runs the server and the dashboard with live reload (dashboard on http://localhost:5173).
+
+```bash
+npm test
+```
+
+```bash
+npm run typecheck
+```
+
+### Settings
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PORT`, `HOST` | `4000`, `127.0.0.1` | Where the server listens |
+| `TEMPCONTROL_DB` | `data/tempcontrol.db` | SQLite file |
+| `TEMPCONTROL_SCENARIO` | `couple` | Demo created on first start: `couple`, `solo` or `night-sweats` |
+| `TEMPCONTROL_HISTORY_NIGHTS` | `10` | Nights simulated when the demo is created |
+| `ANTHROPIC_API_KEY` | unset | Enables the AI assistant. Without it the assistant answers from computed insights only |
+
+## What is real and what is simulated
+
+| Part | Status |
+|---|---|
+| Learning model, night plans, couples blending, live adjustments, energy shaping, travel, voice parsing | Real, tested code |
+| Server, storage, API, control loop | Real |
+| Wearables, thermostats, fans, humidifiers | **Simulated.** Choosing "Nest" or "Oura" creates a simulated device |
+| The sleepers | **Simulated people** with a hidden true preference the engine has to discover |
+| Weather, humidity | Simulated from rounded climate normals |
+| Electricity rates | Real published rates, but entered from search excerpts on 2026-11-13 because the utility sites could not be opened from the build environment. **Re-verify every figure before relying on it** (`packages/engine/src/tariffs.ts`) |
+| Energy savings shown | Computed inside the simulation, against "thermostat left at its daytime setting" |
+| AI assistant | Real when a key is configured; otherwise rule-based |
+
+Nothing here has been tested on real people. Sleep and comfort figures in the demo come from the simulation and are not evidence of real-world results.
+
+## Layout
+
+```
+packages/engine      The algorithm. Pure TypeScript, no dependencies, runs anywhere
+packages/contracts   Types of every API request and response
+apps/server          API, storage, control loop, simulated devices
+apps/web             Dashboard
+```
+
+A phone app (iOS and Android) would be a fifth package using the same engine types and the same API.
+
+## How it works
+
+**One model per sleeper.** The model's job is to estimate the room temperature a person sleeps best at during deep sleep, and how sure it is. It combines two kinds of evidence:
+
+- *Sleep outcomes*: how well they slept at the temperatures they actually experienced, scored from the wearable's nightly data.
+- *Stated preferences*: manual temperature changes and "too warm / too cold / just right".
+
+Before any data it starts from a typical-adult curve, so the first night already has a sensible plan. While the estimate is uncertain, nights alternate half a degree above and below it; that stops by itself once the estimate is tight. Old evidence fades, and evidence that contradicts the current belief makes it fade faster, so the model follows someone whose preference changes.
+
+**One plan per night.** Wind-down before bed, slightly warm while falling asleep, coolest in deep sleep, slightly warmer in late sleep, warmed before waking (more in winter). Tonight's plan is adjusted for humidity and, where the sleeper has opted in, cycle phase, hard training, alcohol and illness. Every adjustment is named so the app can explain it.
+
+**One schedule per room.** Each sleeper's plan is blended into the schedule the thermostat follows. Everyone in bed has an equal say; someone still winding down, or already up, counts for half. A personal fan can make up the difference for whoever wants it cooler. Energy mode then shifts heating and cooling out of expensive hours, inside a comfort tolerance the user sets.
+
+**A control loop through the night.** Every few minutes: a manual temperature wins if one is set; otherwise the plan, nudged by live readings when the wearable reports during the night (restless and warm: cool half a degree; a hot flash: fan first). In the morning the night becomes evidence for each sleeper's model.
+
+`packages/engine/src/model.ts` has the full explanation of the learning model.
+
+## Connecting real devices
+
+The control loop talks to a `NightEnvironment` (`apps/server/src/environment.ts`). Today that is a simulation. Production needs an implementation of the same interface on top of:
+
+- **Thermostats**: a device aggregator, the makers' own APIs, or Matter. Room-level control (baseboard thermostats, mini-split and window-unit controllers) matters as much as whole-home thermostats, because cooling one bedroom is cheaper and kinder to the rest of the household.
+- **Wearables**: Apple Health on iPhone and Health Connect on Android for watches; the makers' cloud APIs for rings and bands, or an aggregator that covers several at once.
+- **Voice**: the server already accepts a spoken or typed sentence at `POST /api/voice` in English and French. Siri (Shortcuts / App Intents), Alexa and Google Home would call it, or reach the platform by having it appear to them as a thermostat.
+
+Things to confirm with each vendor before committing to a design, none of which this code assumes:
+
+- Which wearables can deliver readings *during* the night. The demo marks watches as "live" on the assumption of a companion watch app; rings and bands sync in the morning. Skin temperature in particular is usually only available after the night.
+- Rate limits and terms for commanding a thermostat several times a night.
+- Developer-programme availability, fees and review times for each brand.
+
+## Health and privacy
+
+TempControl is not a medical device and gives no medical advice. Its adjustments for cycle phase, menopause, recovery and illness are starting assumptions that each person's data then revises; they are opt-in.
+
+Wearable data is health information. In Canada that means PIPEDA, Québec's Law 25, and provincial health-privacy rules may apply; get legal advice before handling real users' data. The assistant only sends a sleeper's data to the AI model if that sleeper has consented, and what it sends carries no name, account or location (`apps/server/src/assistant.ts`).

@@ -235,6 +235,8 @@ export function planNight(store: Store, roomId: string, opts: PlanOptions = {}):
         context,
         windDownMin: leadMinutes(toOnset, toOnset > 0 ? room.response.coolRateCPerHour : room.response.heatRateCPerHour, 30, 120),
         wakeRampMin: leadMinutes(wakeLift, room.response.heatRateCPerHour, 30, 75),
+        // Mornings are warmed up to the household's daytime setting, or a degree past it when energy is not a concern.
+        wakeCapC: household.daySetpointC + (household.energy.enabled ? 0 : 1),
       });
       if (preset?.kind === 'curve' && preset.temps) plan = withPhaseTargets(plan, preset.temps, record.limits);
     }
@@ -249,9 +251,8 @@ export function planNight(store: Store, roomId: string, opts: PlanOptions = {}):
     };
   });
 
-  let roomPlan = buildRoomPlan(
-    sleepers.map((p) => ({ plan: p.plan, limits: p.record.limits, weight: estimateIdeal(p.record.model, s).sensitivity })),
-  );
+  // Everyone in bed has an equal say. (The engine also accepts uneven weights, for a future "priority" setting.)
+  let roomPlan = buildRoomPlan(sleepers.map((p) => ({ plan: p.plan, limits: p.record.limits, weight: 1 })));
 
   const tariff = tariffFor(household);
   const periods = pricePeriods(tariff, roomPlan.startMs, roomPlan.endMs, climate.timeZone, { events: peakEventFor(household, tariff, climate.timeZone) });

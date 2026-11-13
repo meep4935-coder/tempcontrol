@@ -7,9 +7,9 @@
  *  - at every moment the target is a weighted average of what each person in
  *    the room wants then, so a partner who is already asleep is not woken by
  *    the other's wake-up warming, and vice versa;
- *  - the weight is each person's temperature sensitivity (someone whose sleep
- *    suffers more from being off-target gets more say), with a floor so that
- *    nobody is ignored;
+ *  - each person carries a weight chosen by the caller: equal by default, or
+ *    uneven to give one partner priority (for instance the one whose sleep
+ *    suffers more from being off-target), with a floor so nobody is ignored;
  *  - someone still winding down, or already up, counts for half.
  *
  * A room with a single sleeper goes through the same function unchanged, so
@@ -22,7 +22,7 @@ import type { ComfortLimits, Phase } from './types';
 export interface SleeperPlan {
   plan: NightPlan;
   limits: ComfortLimits;
-  /** Relative say in the compromise; normally the sleeper's temperature sensitivity. */
+  /** Relative say in the compromise. Equal weights give everyone in bed the same say. */
   weight: number;
 }
 

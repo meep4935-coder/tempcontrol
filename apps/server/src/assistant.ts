@@ -23,6 +23,20 @@ export const aiConfigured = (): boolean => Boolean(process.env.ANTHROPIC_API_KEY
 let client: Anthropic | null = null;
 const anthropic = (): Anthropic => (client ??= new Anthropic());
 
+type StreamParams = Parameters<Anthropic['beta']['messages']['stream']>[0];
+
+/** The part of a streaming reply this module relies on. */
+export interface ReplyStream extends AsyncIterable<Anthropic.Beta.BetaRawMessageStreamEvent> {
+  finalMessage(): Promise<{ stop_reason: string | null }>;
+}
+
+export interface AssistantDeps {
+  /** Whether to try the AI model at all. Defaults to whether credentials are configured. */
+  ai?: boolean;
+  /** Opens the streaming request. Defaults to the Anthropic SDK; tests supply their own. */
+  openStream?: (params: StreamParams) => ReplyStream;
+}
+
 const INSTRUCTIONS = `You are the sleep-temperature assistant inside TempControl, an app that reads a person's wearable and adjusts their bedroom thermostat through the night. You are talking with one user about their own data.
 
 How to answer
@@ -90,7 +104,6 @@ function snapshot(store: Store, sleeper: SleeperRecord): Snapshot {
     insights,
     data: {
       date: household.date,
-      city: outlook.climate.name,
       seasonIndex: round(outlook.seasonIndex, 2),
       profile: {
         bedtime: sleeper.bedtime,
@@ -157,7 +170,7 @@ const note = (locale: Locale, key: 'optedOut' | 'unavailable' | 'declined'): str
 };
 
 /** Answer one question, as a stream of events. */
-export async function* answer(store: Store, req: AssistantRequest): AsyncGenerator<AssistantEvent> {
+export async function* answer(store: Store, req: AssistantRequest, deps: AssistantDeps = {}): AsyncGenerator<AssistantEvent> {
   const sleeper = store.sleeper(req.sleeperId);
   if (!sleeper) throw new RequestError(404, 'not_found', 'Sleeper not found.');
   const snap = snapshot(store, sleeper);
@@ -168,8 +181,9 @@ export async function* answer(store: Store, req: AssistantRequest): AsyncGenerat
     yield { type: 'done', source: 'rules' };
   };
 
-  if (!aiConfigured()) return yield* fallback(null);
+  if (!(deps.ai ?? aiConfigured())) return yield* fallback(null);
   if (!sleeper.aiAssistant) return yield* fallback('optedOut');
+  const openStream = deps.openStream ?? ((params: StreamParams): ReplyStream => anthropic().beta.messages.stream(params));
 
   const messages: Anthropic.Beta.BetaMessageParam[] = [
     ...(req.history ?? []).slice(-20).map((m) => ({ role: m.role, content: m.content })),
@@ -178,7 +192,7 @@ export async function* answer(store: Store, req: AssistantRequest): AsyncGenerat
 
   let sent = false;
   try {
-    const stream = anthropic().beta.messages.stream({
+    const stream = openStream({
       model: MODEL,
       max_tokens: 16000,
       // A short, grounded chat answer: quick to first word matters more than depth.

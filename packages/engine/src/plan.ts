@@ -58,6 +58,13 @@ export interface PlanInput {
   windDownMin?: number;
   /** Minutes before the wake time to start warming. */
   wakeRampMin?: number;
+  /**
+   * The wake-up warming stops here, typically at or just above the home's
+   * daytime setting: warming a bedroom past the temperature the household is
+   * comfortable at when awake wastes energy for no comfort. It never pulls the
+   * wake-up below the late-sleep temperature.
+   */
+  wakeCapC?: number;
   /** Thermostat setpoint resolution. */
   stepC?: number;
 }
@@ -118,7 +125,8 @@ export function buildNightPlan(input: PlanInput): NightPlan {
   const endMs = wakeMs + AFTER_WAKE_HOLD;
 
   const remTarget = target('rem');
-  const wakeTarget = target('wake');
+  const cap = input.wakeCapC === undefined ? Infinity : Math.max(settle(input.wakeCapC, input.limits, stepC), remTarget);
+  const wakeTarget = Math.min(target('wake'), cap);
   const halfway = settle((remTarget + wakeTarget) / 2, input.limits, stepC);
 
   const segments = mergeSegments([

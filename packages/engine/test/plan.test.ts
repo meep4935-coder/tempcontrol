@@ -93,6 +93,19 @@ describe('night plan', () => {
     expect(winter.segments.filter((s) => s.phase === 'wake').length).toBe(2);
   });
 
+  it('stops the wake-up warming at a cap, but never below the late-sleep temperature', () => {
+    const uncapped = buildNightPlan(input({ seasonIndex: 1 }));
+    expect(lastTarget(uncapped)).toBe(21);
+    expect(lastTarget(buildNightPlan(input({ seasonIndex: 1, wakeCapC: 20 })))).toBe(20);
+    // A cap above what the plan wants changes nothing.
+    expect(lastTarget(buildNightPlan(input({ seasonIndex: 1, wakeCapC: 24 })))).toBe(21);
+    // A cap below the late-sleep temperature cannot cool the morning.
+    const low = buildNightPlan(input({ seasonIndex: 1, wakeCapC: 16 }));
+    expect(lastTarget(low)).toBe(targetOf(low, 'rem'));
+    // Winter mornings stay warmer than summer ones under the same cap.
+    expect(lastTarget(buildNightPlan(input({ seasonIndex: 1, wakeCapC: 20.5 })))).toBeGreaterThan(lastTarget(buildNightPlan(input({ seasonIndex: -1, wakeCapC: 20.5 }))));
+  });
+
   it('keeps every target on the thermostat step and inside the comfort limits', () => {
     const limits = { minC: 18.2, maxC: 19.3 };
     const plan = buildNightPlan(input({ limits, seasonIndex: 1 }));

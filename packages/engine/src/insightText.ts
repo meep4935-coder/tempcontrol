@@ -15,7 +15,7 @@ export interface TextOptions {
 
 /** A temperature for display: "18.5 °C" / "18,5 °C" / "65 °F". */
 export function formatTemp(tempC: number, { locale, units }: TextOptions): string {
-  const space = locale === 'fr' ? ' ' : ' ';
+  const space = locale === 'fr' ? '\u00a0' : ' ';
   if (units === 'F') return `${Math.round(cToF(tempC))}${space}°F`;
   const rounded = Math.round(tempC * 2) / 2;
   const text = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
@@ -24,7 +24,7 @@ export function formatTemp(tempC: number, { locale, units }: TextOptions): strin
 
 /** A temperature difference for display: "0.5 °C" / "1 °F". Never negative. */
 export function formatDelta(deltaC: number, { locale, units }: TextOptions): string {
-  const space = locale === 'fr' ? ' ' : ' ';
+  const space = locale === 'fr' ? '\u00a0' : ' ';
   if (units === 'F') return `${Math.max(1, Math.round((Math.abs(deltaC) * 9) / 5))}${space}°F`;
   const text = String(Math.round(Math.abs(deltaC) * 10) / 10);
   return `${locale === 'fr' ? text.replace('.', ',') : text}${space}°C`;
@@ -37,7 +37,7 @@ const number = (v: number, locale: Locale): string => {
 
 const dollars = (cents: number, locale: Locale): string => {
   const amount = (Math.abs(cents) / 100).toFixed(2);
-  return locale === 'fr' ? `${amount.replace('.', ',')} $` : `$${amount}`;
+  return locale === 'fr' ? `${amount.replace('.', ',')}\u00a0$` : `$${amount}`;
 };
 
 export function describeInsight(insight: Insight, opts: TextOptions): string {
@@ -45,7 +45,7 @@ export function describeInsight(insight: Insight, opts: TextOptions): string {
   const temp = (c: number): string => formatTemp(c, opts);
   const delta = (c: number): string => formatDelta(c, opts);
   const n = (v: number): string => number(v, opts.locale);
-  const percent = (fraction: number): string => `${Math.round(fraction * 100)}${fr ? ' ' : ''}%`;
+  const percent = (fraction: number): string => `${Math.round(fraction * 100)}${fr ? '\u00a0' : ''}%`;
 
   switch (insight.id) {
     case 'learning':
@@ -70,11 +70,11 @@ export function describeInsight(insight: Insight, opts: TextOptions): string {
           : `In winter you sleep better about ${delta(insight.shiftC)} cooler than during the rest of the year.`;
     case 'humidNights':
       return fr
-        ? `Les ${insight.nights} nuits humides (environ ${insight.averagePct} % d'humidité) ont obtenu ${n(insight.drop)} points de moins. Un déshumidificateur dans la chambre pourrait aider.`
+        ? `Les ${insight.nights} nuits humides (environ ${insight.averagePct}\u00a0% d'humidité) ont obtenu ${n(insight.drop)} points de moins. Un déshumidificateur dans la chambre pourrait aider.`
         : `The ${insight.nights} humid nights (around ${insight.averagePct}% humidity) scored ${n(insight.drop)} points lower. A dehumidifier in the bedroom could help.`;
     case 'dryAir':
       return fr
-        ? `L'air de la chambre est sec : environ ${insight.averagePct} % d'humidité sur ${insight.nights} nuits récentes. Viser 40 % avec un humidificateur est généralement plus confortable.`
+        ? `L'air de la chambre est sec : environ ${insight.averagePct}\u00a0% d'humidité sur ${insight.nights} nuits récentes. Viser 40\u00a0% avec un humidificateur est généralement plus confortable.`
         : `The bedroom air has been dry: around ${insight.averagePct}% humidity on ${insight.nights} recent nights. Aiming for 40% with a humidifier is usually more comfortable.`;
     case 'overrides':
       return insight.direction === 'warmer'
@@ -102,15 +102,15 @@ export function describeInsight(insight: Insight, opts: TextOptions): string {
           : `On ${insight.nights} recent nights the room stayed about ${delta(insight.shortfallC)} below the temperature asked for. The heating may be struggling to keep up.`;
     case 'liveAdjustments':
       return fr
-        ? `La température a été ajustée ${insight.count} fois en pleine nuit au cours des ${insight.nights} dernières nuits, en réaction à votre agitation.`
-        : `The temperature was adjusted ${insight.count} times mid-night over the last ${insight.nights} nights in response to restlessness.`;
+        ? `La chambre a été ajustée ${insight.count} fois en pleine nuit au cours des ${insight.nights} dernières nuits, en réaction aux signaux de votre montre.`
+        : `The room was adjusted ${insight.count} times mid-night over the last ${insight.nights} nights in response to what your watch reported.`;
     case 'energy':
       return insight.savedKWh >= 0
         ? fr
-          ? `Sur ${insight.nights} nuits, la chambre a consommé environ ${n(insight.savedKWh)} kWh de moins qu'avec le thermostat laissé à son réglage de jour, soit environ ${dollars(insight.savedCents, 'fr')}.`
+          ? `Sur ${insight.nights} nuits, la chambre a consommé environ ${n(insight.savedKWh)}\u00a0kWh de moins qu'avec le thermostat laissé à son réglage de jour, soit environ ${dollars(insight.savedCents, 'fr')}.`
           : `Over ${insight.nights} nights the room used about ${n(insight.savedKWh)} kWh less than with the thermostat left at its daytime setting, about ${dollars(insight.savedCents, 'en')}.`
         : fr
-          ? `Sur ${insight.nights} nuits, la chambre a consommé environ ${n(-insight.savedKWh)} kWh de plus qu'avec le thermostat laissé à son réglage de jour (${dollars(insight.savedCents, 'fr')}) : c'est le coût de nuits plus fraîches en été.`
-          : `Over ${insight.nights} nights the room used about ${n(-insight.savedKWh)} kWh more than with the thermostat left at its daytime setting (${dollars(insight.savedCents, 'en')}): the cost of cooler nights in summer.`;
+          ? `Sur ${insight.nights} nuits, la chambre a consommé environ ${n(-insight.savedKWh)}\u00a0kWh de plus qu'avec le thermostat laissé à son réglage de jour (${dollars(insight.savedCents, 'fr')}) : les températures qui conviennent à votre sommeil ont demandé un peu plus d'énergie sur cette période.`
+          : `Over ${insight.nights} nights the room used about ${n(-insight.savedKWh)} kWh more than with the thermostat left at its daytime setting (${dollars(insight.savedCents, 'en')}): the temperatures that suit your sleep took a little more energy over this period.`;
   }
 }
