@@ -7,6 +7,7 @@ import {
   DEFAULT_OPTIONS,
   estimateIdeal,
   experiencedCoreC,
+  FAN_COOLING_PER_LEVEL_C,
   HOUR,
   learnFromNight,
   MIN,
@@ -76,6 +77,13 @@ describe('end-of-night learning', () => {
     expect(humid.segments.find((s) => s.phase === 'deep')!.targetC).toBe(17.5);
     // The room was a degree cooler because of humidity; the neutral-context reading is unchanged.
     expect(experiencedCoreC(model, humid, tracking(humid))).toBeCloseTo(18.5, 6);
+  });
+
+  it('counts a personal fan as making the room feel cooler', () => {
+    const model = createModel();
+    const plan = planFor();
+    const withFan = tracking(plan).map((s) => ({ ...s, fanLevel: 2 }));
+    expect(experiencedCoreC(model, plan, withFan)).toBeCloseTo(18.5 - 2 * FAN_COOLING_PER_LEVEL_C, 6);
   });
 
   it('ignores the wind-down and the wake-up warming', () => {

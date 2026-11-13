@@ -591,7 +591,14 @@ export class NightRunner {
       // A nap leaves the model alone: too short to judge, and not a night.
       const learned =
         kind === 'night'
-          ? learnFromNight(current.model, { plan: p.plan, samples, metrics: report.metrics, context: p.context, preferences })
+          ? learnFromNight(current.model, {
+              plan: p.plan,
+              // What this sleeper felt: the room, less their own fan's cooling when it ran.
+              samples: this.trace.map((tick) => ({ t: tick.t, roomTempC: tick.roomTempC, fanLevel: tick.fans[p.record.id] ?? 0 })),
+              metrics: report.metrics,
+              context: p.context,
+              preferences,
+            })
           : { model: current.model, experiencedCoreC: null, quality: null, outcomeUsed: false, preferencesUsed: 0 };
       const estimate = estimateIdeal(learned.model, s);
 

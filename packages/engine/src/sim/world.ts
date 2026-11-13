@@ -6,6 +6,7 @@
  * or a test) decides the setpoint each step, exactly as with real devices.
  */
 
+import { FAN_COOLING_PER_LEVEL_C } from '../learning';
 import type { HvacMode, LiveVitals, Phase, Rng } from '../types';
 import { MIN } from '../util';
 import { sensedTempC, stepHumidity, stepRoom, type RoomParams, type RoomState, type Running } from './room';
@@ -73,9 +74,6 @@ export interface WorldReading {
   /** Sleepers who got up and changed the thermostat themselves during the step. */
   overrides: { sleeperId: string; targetC: number }[];
 }
-
-/** Each fan speed step feels roughly this much cooler to the person it points at. */
-const FAN_COOLING_C = 0.6;
 
 export class RoomNightSim {
   readonly setup: WorldSetup;
@@ -145,7 +143,7 @@ export class RoomNightSim {
         this.nights.get(s.id)!,
         {
           t: this.now,
-          roomTempC: this.room.tempC - FAN_COOLING_C * fan,
+          roomTempC: this.room.tempC - FAN_COOLING_PER_LEVEL_C * fan,
           phase,
           ctx: { ...s.ctx, humidityPct: this.humidity },
         },

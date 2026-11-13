@@ -709,6 +709,23 @@ describe('reset', () => {
     expect((await call('POST', '/api/sim/reset', { scenario: 'nope' })).status).toBe(400);
   });
 
+  it('abandons a night that is playing without saving it', async () => {
+    await start('couple', 0);
+    const room = (await getState()).rooms[0]!;
+    await call('POST', '/api/live/start', { roomId: room.id, secondsPerNight: 10 });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const { body } = await call<StateDto>('POST', '/api/sim/reset', { scenario: 'solo' });
+    expect(body.live).toBeNull();
+    expect(body.household.city).toBe('Toronto');
+    const date = body.household.date;
+    // Give the abandoned night time to have finished, had it still been running.
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const later = await getState();
+    expect(later.household.date).toBe(date);
+    expect(later.sleepers[0]!.estimate.nights).toBe(0);
+    expect((await call<NightSummaryDto[]>('GET', `/api/rooms/${later.rooms[0]!.id}/nights`)).body).toEqual([]);
+  }, 20_000);
+
   it('answers unknown API paths with a JSON 404', async () => {
     await start();
     const res = await call<{ error: string }>('GET', '/api/nope');

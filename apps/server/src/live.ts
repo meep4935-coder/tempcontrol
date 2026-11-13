@@ -70,7 +70,8 @@ export class LiveManager {
         void (async () => {
           try {
             if (!runner.done) await runner.step();
-            if (runner.done) await this.finalize(session);
+            // A session that was discarded while this step ran must not save anything.
+            if (runner.done && this.session === session) await this.finalize(session);
           } catch (err) {
             // A failure mid-night must not leave a timer spinning; close the session.
             console.error('live night failed', err);
@@ -138,10 +139,14 @@ export class LiveManager {
     return this.dto();
   }
 
-  /** Forget the session without saving anything (used when the demo is reset). */
-  discard(): void {
-    if (this.session?.timer) clearInterval(this.session.timer);
+  /** Forget the session without saving anything (used when the demo is reset). Waits for any step in flight. */
+  async discard(): Promise<void> {
+    const session = this.session;
+    if (!session) return;
+    if (session.timer) clearInterval(session.timer);
+    session.timer = null;
     this.session = null;
+    await this.settle(session);
   }
 
   update(since: number): LiveUpdateDto {

@@ -196,7 +196,7 @@ export function buildApp({ store, webRoot, logger = false }: AppOptions): Fastif
   app.post('/api/sim/reset', async (req): Promise<StateDto> => {
     const body = resetBody.parse(req.body ?? {});
     if (body.scenario && !SCENARIOS.some((s) => s.id === body.scenario)) throw new RequestError(400, 'invalid_request', 'Unknown scenario.');
-    live.discard();
+    await live.discard();
     await createDemo(store, body.scenario, body.nights ?? 0);
     return state();
   });
@@ -440,6 +440,8 @@ export function buildApp({ store, webRoot, logger = false }: AppOptions): Fastif
     app.setNotFoundHandler((_req, reply) => reply.status(404).send({ error: 'not_found', message: 'Not found.' } satisfies ApiError));
   }
 
-  app.addHook('onClose', async () => live.discard());
+  app.addHook('onClose', async () => {
+    await live.discard();
+  });
   return app;
 }

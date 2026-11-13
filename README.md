@@ -101,6 +101,17 @@ Things to confirm with each vendor before committing to a design, none of which 
 - Rate limits and terms for commanding a thermostat several times a night.
 - Developer-programme availability, fees and review times for each brand.
 
+## Before real users
+
+The demo is built to show the product working, not to be put on the internet as it is. Still to do before anyone's real bedroom depends on it:
+
+- **Accounts and sign-in.** The server has no login: anyone who can reach it can change every setting. Partners linking their wearables need their own accounts and a consent step.
+- **Real device connections**, as above, including what happens when a thermostat is offline or a command fails.
+- **A real clock.** The demo advances a simulated calendar; production runs the same control loop on a timer against the real time.
+- **A production database.** Records are JSON documents in SQLite, behind one class (`apps/server/src/store.ts`).
+- **Current electricity rates**, from the utilities or a rates service, with peak events fetched automatically.
+- **Evidence.** A pilot with real sleepers, measuring whether nights actually improve.
+
 ## Health and privacy
 
 TempControl is not a medical device and gives no medical advice. Its adjustments for cycle phase, menopause, recovery and illness are starting assumptions that each person's data then revises; they are opt-in.

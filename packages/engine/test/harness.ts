@@ -161,7 +161,7 @@ export function runNights(opts: HarnessOptions): HarnessResult {
     let liveEvents = 0;
     let overrides = 0;
     let kWh = 0;
-    const samples: { t: number; roomTempC: number; setpointC: number | null }[] = [];
+    const samples: { t: number; roomTempC: number; setpointC: number | null; fans: Record<string, number> }[] = [];
     const prefs = new Map<string, PreferenceEvent[]>(opts.sleepers.map((x) => [x.id, []]));
 
     while (!world.done) {
@@ -169,7 +169,7 @@ export function runNights(opts: HarnessOptions): HarnessResult {
       const fans = Object.fromEntries(opts.sleepers.filter((x) => x.fan).map((x) => [x.id, fanLevel(x.id, world.t, live, cooling)]));
       const reading = world.advance({ setpointC: decision.targetC, fans });
       kWh += reading.kWh;
-      samples.push({ t: reading.t, roomTempC: reading.roomTempC, setpointC: decision.targetC });
+      samples.push({ t: reading.t, roomTempC: reading.roomTempC, setpointC: decision.targetC, fans });
 
       for (const o of reading.overrides) {
         hold = { targetC: o.targetC, source: 'device', startMs: reading.t, untilMs: null, sleeperId: o.sleeperId };
@@ -226,7 +226,8 @@ export function runNights(opts: HarnessOptions): HarnessResult {
       const result = results[p.sleeper.id]!;
       const events = [...prefs.get(p.sleeper.id)!];
       if (result.feedback) events.push({ kind: result.feedback });
-      const learned = learnFromNight(p.model, { plan: p.plan, samples, metrics: result.metrics, context: p.context, preferences: events });
+      const felt = samples.map((x) => ({ t: x.t, roomTempC: x.roomTempC, fanLevel: x.fans[p.sleeper.id] ?? 0 }));
+      const learned = learnFromNight(p.model, { plan: p.plan, samples: felt, metrics: result.metrics, context: p.context, preferences: events });
       models.set(p.sleeper.id, learned.model);
       const estimate = estimateIdeal(learned.model, s);
       night.sleepers[p.sleeper.id] = {
