@@ -13,6 +13,7 @@ export * from './energy';
 export * from './tariffs';
 export * from './travel';
 export * from './insights';
+export * from './insightText';
 export * from './voice/types';
 export * from './voice/parse';
 export * from './voice/replies';

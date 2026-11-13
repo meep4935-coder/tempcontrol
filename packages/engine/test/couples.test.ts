@@ -138,6 +138,16 @@ describe('shared room', () => {
     expect(personalCooling(buildRoomPlan([sleeper(planFor('a', 19)), sleeper(planFor('b', 19.5))]))).toEqual([]);
   });
 
+  it('does not flick the thermostat half a degree for a short spell', () => {
+    // Different bedtimes make the blend shift several times in the evening.
+    const room = buildRoomPlan([sleeper(planFor('a', 17, '22:30', '06:30'), 1), sleeper(planFor('b', 19, '23:15', '07:00'), 1.1)]);
+    for (let i = 1; i + 1 < room.segments.length; i++) {
+      const [before, seg, after] = [room.segments[i - 1]!, room.segments[i]!, room.segments[i + 1]!];
+      const blip = seg.endMs - seg.startMs < 60 * MIN && before.targetC === after.targetC && seg.targetC !== before.targetC && Math.abs(seg.targetC - before.targetC) <= 0.5;
+      expect(blip).toBe(false);
+    }
+  });
+
   it('handles three sleepers and rejects none', () => {
     const room = buildRoomPlan([sleeper(planFor('a', 17)), sleeper(planFor('b', 19)), sleeper(planFor('c', 21))]);
     const deep = roomSegmentAt(room, at('2026-11-14', '02:00'))!;

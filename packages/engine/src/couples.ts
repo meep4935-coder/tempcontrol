@@ -124,6 +124,8 @@ export function buildRoomPlan(sleepers: SleeperPlan[], stepC = 0.5): RoomPlan {
     else segments.push(segment);
   }
 
+  smoothWiggles(segments);
+
   const ideals = sleepers.map((s) => s.plan.idealC);
   return {
     kind: sleepers.every((s) => s.plan.kind === 'nap') ? 'nap' : 'night',
@@ -134,6 +136,23 @@ export function buildRoomPlan(sleepers: SleeperPlan[], stepC = 0.5): RoomPlan {
     gapC: Math.max(...ideals) - Math.min(...ideals),
     limits,
   };
+}
+
+/**
+ * As partners come and go the blend shifts slightly, and rounding can turn that
+ * into a half-degree blip: up for forty minutes, then straight back. The room
+ * cannot follow something that brief and nobody would feel it, so a short
+ * segment that sits half a degree off two neighbours that agree simply takes
+ * their temperature.
+ */
+function smoothWiggles(segments: RoomSegment[], shorterThanMs = 60 * 60_000): void {
+  for (let i = 1; i + 1 < segments.length; i++) {
+    const before = segments[i - 1]!;
+    const seg = segments[i]!;
+    const after = segments[i + 1]!;
+    const brief = seg.endMs - seg.startMs < shorterThanMs;
+    if (brief && before.targetC === after.targetC && Math.abs(seg.targetC - before.targetC) <= 0.5) seg.targetC = before.targetC;
+  }
 }
 
 function sameDecision(a: RoomSegment, b: RoomSegment): boolean {

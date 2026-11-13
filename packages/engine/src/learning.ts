@@ -126,7 +126,7 @@ export function updateRoomResponse(
     if (!start || !direction) return;
     const hours = (end.t - start.t) / 3_600_000;
     const moved = Math.abs(end.roomTempC - start.roomTempC);
-    if (hours >= 0.25 && moved >= 0.5) rates[direction].push(moved / hours);
+    if (hours >= 1 / 6 && moved >= 0.4) rates[direction].push(moved / hours);
     start = null;
     direction = null;
   };

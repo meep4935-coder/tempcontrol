@@ -170,14 +170,18 @@ export class RoomNightSim {
     };
   }
 
-  /** The morning after: what each wearable reports and any feedback left in the app. */
-  finish(): Record<string, SleeperNightResult> {
+  /**
+   * The morning after: what each wearable reports and any feedback left in the
+   * app. `untilMs` marks a night that was ended early.
+   */
+  finish(untilMs?: number): Record<string, SleeperNightResult> {
     const out: Record<string, SleeperNightResult> = {};
     for (const s of this.setup.sleepers) {
+      const upMs = untilMs === undefined ? s.wakeMs : Math.min(s.wakeMs, untilMs);
       out[s.id] = finishSleeperNight(
         s.truth,
         this.nights.get(s.id)!,
-        { timeInBedMin: (s.wakeMs - s.bedtimeMs) / MIN, ctx: { ...s.ctx, humidityPct: this.humidity } },
+        { timeInBedMin: Math.max(0, upMs - s.bedtimeMs) / MIN, ctx: { ...s.ctx, humidityPct: this.humidity } },
         this.setup.rng,
       );
     }

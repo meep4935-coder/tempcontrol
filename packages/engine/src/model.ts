@@ -219,7 +219,7 @@ export function createModel(opts: { priorCoreC?: number; age?: number } = {}): T
     forgetting: d.forgetting,
     nights: 0,
     preferences: 0,
-    phaseOffsets: structuredClone(PHASE_PRIORS),
+    phaseOffsets: { onset: { ...PHASE_PRIORS.onset }, rem: { ...PHASE_PRIORS.rem }, wake: { ...PHASE_PRIORS.wake } },
   };
 }
 
