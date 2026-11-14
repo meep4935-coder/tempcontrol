@@ -173,7 +173,8 @@ export function nightRecords(store: Store, sleeper: SleeperRecord, limit = 60): 
         overrides: manual.length,
         overrideDeltaC: manual.length > 0 ? overrideDeltaC : undefined,
         feedback: mine.feedback ?? undefined,
-        liveAdjustments: night.liveAdjustments,
+        // In-night adjustments come from a watch that reports live; they say nothing about a morning-sync wearer.
+        liveAdjustments: wearableBrand(sleeper.wearableBrand).delivery === 'live' ? night.liveAdjustments : 0,
         trackingErrorC: night.trackingErrorC,
         energyKWh: night.kWh,
         baselineKWh: night.baselineKWh,

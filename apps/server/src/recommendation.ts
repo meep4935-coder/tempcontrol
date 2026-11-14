@@ -35,8 +35,8 @@ export function buildRecommendation(store: Store, roomId: string): Recommendatio
     .map((sleeper) => {
       const estimate = estimateIdeal(sleeper.model, season);
       const mine = lastNight?.sleepers.find((x) => x.sleeperId === sleeper.id);
-      // The ideal temperature is stated on its own; the rest are the observations behind it.
-      const insights = buildInsights(sleeper.model, nightRecords(store, sleeper), season).filter((i) => i.id !== 'ideal');
+      // The ideal temperature is stated on its own and savings have their own place; the rest are the observations behind it.
+      const insights = buildInsights(sleeper.model, nightRecords(store, sleeper), season).filter((i) => i.id !== 'ideal' && i.id !== 'energy');
       return {
         sleeperId: sleeper.id,
         idealC: Math.round(estimate.coreC * 10) / 10,

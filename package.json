@@ -16,7 +16,7 @@
     "build": "npm run build -w @tempcontrol/web",
     "start": "npm run start -w @tempcontrol/server",
     "test": "vitest run",
-    "typecheck": "tsc -p packages/engine && tsc -p packages/contracts && tsc -p apps/server"
+    "typecheck": "tsc -p packages/engine && tsc -p packages/contracts && tsc -p apps/server && tsc -p apps/web"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
