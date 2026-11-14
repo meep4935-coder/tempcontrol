@@ -20,7 +20,7 @@ import type { DeviceRecord, HouseholdRecord, PresetRecord, RoomRecord, SleeperRe
 
 const round = (v: number, digits = 2): number => Math.round(v * 10 ** digits) / 10 ** digits;
 
-export function householdDto(h: HouseholdRecord, outlook: Outlook, reportsHumidity: boolean): HouseholdDto {
+export function householdDto(h: HouseholdRecord, outlook: Outlook): HouseholdDto {
   const { climate } = outlook;
   return {
     id: h.id,
@@ -33,10 +33,11 @@ export function householdDto(h: HouseholdRecord, outlook: Outlook, reportsHumidi
     date: h.date,
     season: seasonName(h.date, climate.latitude),
     seasonIndex: round(outlook.seasonIndex),
-    outlook: { outdoorC: round(outlook.outdoorC, 1), humidityPct: reportsHumidity ? Math.round(outlook.humidityPct) : null },
+    outlook: { outdoorC: round(outlook.outdoorC, 1) },
     tariffId: h.tariffId,
     energy: h.energy,
     daySetpointC: h.daySetpointC,
+    manualControl: h.manualControl,
     peakEvent: h.peakEvent,
   };
 }
@@ -96,7 +97,6 @@ export function roomDto(store: Store, room: RoomRecord, h: HouseholdRecord, outl
     devices: devices.map(deviceDto),
     climate: {
       tempC: room.climate.tempC,
-      humidityPct: thermostat?.reportsHumidity ? room.climate.humidityPct : null,
       mode: thermostat ? seasonalMode(outlook.outdoorC, equipment) : 'off',
     },
     response: room.response,
@@ -140,9 +140,8 @@ export function stateDto(store: Store, live: LiveSessionDto | null): StateDto {
   if (!h) throw new Error('No household has been set up.');
   const outlook = outlookFor(h);
   const rooms = store.rooms(h.id);
-  const reportsHumidity = rooms.some((r) => store.devices(r.id)[0]?.reportsHumidity);
   return {
-    household: householdDto(h, outlook, reportsHumidity),
+    household: householdDto(h, outlook),
     sleepers: store.sleepers(h.id).map((s) => sleeperDto(s, h, outlook)),
     rooms: rooms.map((r) => roomDto(store, r, h, outlook)),
     presets: store.presets(h.id).map(presetDto),
@@ -170,7 +169,6 @@ export function nightRecords(store: Store, sleeper: SleeperRecord, limit = 60): 
         experiencedCoreC: mine.experiencedCoreC,
         thermalQuality: mine.thermalQuality,
         overallQuality: mine.quality,
-        humidityPct: night.humidityPct ?? undefined,
         modifiers: mine.modifiers,
         overrides: manual.length,
         overrideDeltaC: manual.length > 0 ? overrideDeltaC : undefined,

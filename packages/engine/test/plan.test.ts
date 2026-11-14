@@ -213,7 +213,6 @@ describe('tonight-specific adjustments', () => {
 
   it('does nothing by default', () => {
     expect(contextModifiers({}, DEFAULT_OPTIONS)).toEqual([]);
-    expect(contextModifiers({ humidityPct: 45 }, DEFAULT_OPTIONS)).toEqual([]);
   });
 
   it('cools for the luteal phase only when cycle tracking is on', () => {
@@ -239,17 +238,9 @@ describe('tonight-specific adjustments', () => {
     expect(contextModifiers({ recovery: { highStrain: true } }, { ...all, recoveryAware: false })).toEqual([]);
   });
 
-  it('cools as humidity rises, in half-degree steps', () => {
-    const at = (h: number): number => modifierDelta(contextModifiers({ humidityPct: h }, DEFAULT_OPTIONS), 'deep');
-    expect(at(55)).toBe(0);
-    expect(at(64)).toBe(-0.5);
-    expect(at(70)).toBe(-1);
-    expect(at(95)).toBe(-1);
-  });
-
   it('caps the combined adjustment', () => {
     const mods = contextModifiers(
-      { cyclePhase: 'luteal', recovery: { highStrain: true, alcohol: true }, humidityPct: 90 },
+      { cyclePhase: 'luteal', recovery: { highStrain: true, alcohol: true } },
       { ...all, menopauseMode: true },
     );
     expect(modifierDelta(mods, 'deep')).toBe(-1.5);

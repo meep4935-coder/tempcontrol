@@ -33,7 +33,6 @@ export function assistantContext(store: Store, sleeper: SleeperRecord): Assistan
       energyChanges: setup.changes,
       partners: setup.sleepers.length - 1,
       gapC: setup.roomPlan.gapC,
-      humidityPct: setup.humidityPct,
     };
   } catch (err) {
     // No plan can be made (the room has no thermostat): the assistant says so.
@@ -46,6 +45,7 @@ export function assistantContext(store: Store, sleeper: SleeperRecord): Assistan
     insights: buildInsights(sleeper.model, history, outlook.seasonIndex),
     season: seasonName(household.date, outlook.climate.latitude),
     options: sleeper.options,
+    manualControl: household.manualControl,
     wearable: { name: wearable.name, delivery: wearable.delivery },
     tonight,
     lastNight: last && mine ? { experiencedCoreC: mine.experiencedCoreC, quality: mine.quality, liveAdjustments: last.liveAdjustments, manualChanges: last.manualChanges } : null,

@@ -8,7 +8,7 @@
 
 import type { HvacMode, LiveVitals, Phase, Rng } from '../types';
 import { MIN } from '../util';
-import { sensedTempC, stepHumidity, stepRoom, type RoomParams, type RoomState, type Running } from './room';
+import { sensedTempC, stepRoom, type RoomParams, type RoomState, type Running } from './room';
 import {
   finishSleeperNight,
   sleeperTick,
@@ -42,8 +42,6 @@ export interface WorldSetup {
   /** Setpoint the thermostat sits at when the platform is not controlling it. */
   idleSetpointC: number;
   outdoorMeanC: number;
-  initialHumidityPct: number;
-  ambientHumidityPct: number;
   sleepers: SimSleeperSetup[];
   rng: Rng;
 }
@@ -57,7 +55,6 @@ export interface WorldReading {
   t: number;
   /** What the thermostat's sensor reports. */
   roomTempC: number;
-  humidityPct: number;
   outdoorC: number;
   running: Running;
   /** Setpoint that was in force during the step that ended at `t`. */
@@ -74,14 +71,12 @@ export interface WorldReading {
 export class RoomNightSim {
   readonly setup: WorldSetup;
   private room: RoomState;
-  private humidity: number;
   private nights = new Map<string, SleeperNightState>();
   private now: number;
 
   constructor(setup: WorldSetup) {
     this.setup = setup;
     this.room = { tempC: setup.initialTempC, running: 'idle' };
-    this.humidity = setup.initialHumidityPct;
     this.now = setup.startMs;
     for (const s of setup.sleepers) this.nights.set(s.id, startSleeperNight(s.truth, s.bedtimeMs, s.wakeMs, setup.rng));
   }
@@ -103,7 +98,6 @@ export class RoomNightSim {
     return {
       t: this.now,
       roomTempC: sensedTempC(this.room, this.setup.rng),
-      humidityPct: this.humidity,
       outdoorC: this.outdoorC(this.now),
       running: this.room.running,
       setpointC: this.setup.idleSetpointC,
@@ -121,7 +115,6 @@ export class RoomNightSim {
     const outdoorC = this.outdoorC(this.now + (setup.tickMin * MIN) / 2);
     const step = stepRoom(this.room, setup.room, { setpointC, mode: setup.mode, outdoorC, minutes: setup.tickMin });
     this.room = step.state;
-    this.humidity = stepHumidity(this.humidity, setup.ambientHumidityPct, setup.tickMin);
     this.now += setup.tickMin * MIN;
 
     const vitals: Record<string, LiveVitals | null> = {};
@@ -140,7 +133,7 @@ export class RoomNightSim {
           t: this.now,
           roomTempC: this.room.tempC,
           phase,
-          ctx: { ...s.ctx, humidityPct: this.humidity },
+          ctx: s.ctx,
         },
         setup.rng,
       );
@@ -152,7 +145,6 @@ export class RoomNightSim {
     return {
       t: this.now,
       roomTempC: sensedTempC(this.room, setup.rng),
-      humidityPct: this.humidity,
       outdoorC,
       running: this.room.running,
       setpointC,
@@ -174,7 +166,7 @@ export class RoomNightSim {
       out[s.id] = finishSleeperNight(
         s.truth,
         this.nights.get(s.id)!,
-        { timeInBedMin: Math.max(0, upMs - s.bedtimeMs) / MIN, ctx: { ...s.ctx, humidityPct: this.humidity } },
+        { timeInBedMin: Math.max(0, upMs - s.bedtimeMs) / MIN, ctx: s.ctx },
         this.setup.rng,
       );
     }

@@ -13,7 +13,7 @@
 import type { CyclePhase, Phase, SleeperOptions } from './types';
 import { clamp } from './util';
 
-export type ModifierId = 'cycle' | 'menopause' | 'strain' | 'alcohol' | 'illness' | 'humidity';
+export type ModifierId = 'cycle' | 'menopause' | 'strain' | 'alcohol' | 'illness';
 
 export interface Modifier {
   id: ModifierId;
@@ -35,8 +35,6 @@ export interface RecoverySignals {
 export interface NightContext {
   cyclePhase?: CyclePhase;
   recovery?: RecoverySignals;
-  /** Bedroom relative humidity, percent. Only known when the thermostat reports it. */
-  humidityPct?: number;
 }
 
 const ALL_PHASES: readonly Phase[] = ['windDown', 'onset', 'deep', 'rem', 'wake'];
@@ -69,14 +67,6 @@ export function contextModifiers(ctx: NightContext, options: SleeperOptions): Mo
     }
     if (recovery.alcohol) {
       mods.push({ id: 'alcohol', deltaC: -0.5, phases: ASLEEP });
-    }
-  }
-
-  if (ctx.humidityPct !== undefined && Number.isFinite(ctx.humidityPct)) {
-    // Humid air slows the body's own cooling, so the same reading feels warmer.
-    const delta = -Math.round(clamp((ctx.humidityPct - 55) / 20, 0, 1) * 2) / 2;
-    if (delta !== 0) {
-      mods.push({ id: 'humidity', deltaC: delta, phases: ASLEEP, detail: { humidityPct: Math.round(ctx.humidityPct) } });
     }
   }
 

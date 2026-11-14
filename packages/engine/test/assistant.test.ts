@@ -12,6 +12,7 @@ function context(over: Partial<AssistantContext> = {}): AssistantContext {
     insights: [],
     season: 'winter',
     options: { explore: true, cycleTracking: false, menopauseMode: false, recoveryAware: true },
+    manualControl: false,
     wearable: { name: 'Oura Ring', delivery: 'morning' },
     tonight: {
       timeZone: TZ,
@@ -29,7 +30,6 @@ function context(over: Partial<AssistantContext> = {}): AssistantContext {
       energyChanges: [],
       partners: 0,
       gapC: 0,
-      humidityPct: null,
     },
     lastNight: { experiencedCoreC: 19.2, quality: 81.4, liveAdjustments: 0, manualChanges: 0 },
     savings: null,
@@ -60,7 +60,6 @@ describe('understanding the question', () => {
     ['Does my watch sync live?', 'wearable'],
     ["I'm too hot at night", 'tooHot'],
     ["J'ai trop froid la nuit", 'tooCold'],
-    ['Is humidity taken into account?', 'humidity'],
     ['What does menopause mode do?', 'health'],
     ['I had wine and a hard workout', 'recovery'],
     ['What about jet lag when I travel?', 'travel'],
@@ -87,7 +86,7 @@ describe('answering', () => {
 
   it('lays out tonight phase by phase with the reasons behind it', () => {
     const ctx = context();
-    ctx.tonight!.modifiers = [{ id: 'humidity', deltaC: -0.5, phases: ['deep'] }];
+    ctx.tonight!.modifiers = [{ id: 'strain', deltaC: -0.5, phases: ['deep'] }];
     ctx.tonight!.explorationC = 0.5;
     ctx.tonight!.partners = 1;
     ctx.tonight!.gapC = 2;
@@ -95,7 +94,7 @@ describe('answering', () => {
     expect(reply.text).toContain('19.5 °C for falling asleep (from 22:45)');
     expect(reply.text).toContain('18.5 °C for deep sleep (from 00:00)');
     expect(reply.text).toContain('21 °C for waking up');
-    expect(reply.text).toContain('because the air is humid');
+    expect(reply.text).toContain('you trained hard today');
     expect(reply.text).toContain('while calibrating');
     expect(reply.text).toContain('differ by 2 °C');
   });
@@ -124,11 +123,12 @@ describe('answering', () => {
     expect(answerQuestion('Is my watch live?', live, { locale: 'en', units: 'C' }).text).toContain('adjusted by half a degree there and then');
   });
 
-  it('only mentions humidity readings when the thermostat reports them', () => {
-    expect(answerQuestion('What about humidity?', context(), { locale: 'en', units: 'C' }).text).toContain('does not measure humidity');
-    const ctx = context();
-    ctx.tonight!.humidityPct = 63;
-    expect(answerQuestion('What about humidity?', ctx, { locale: 'en', units: 'C' }).text).toContain('63% humidity');
+  it('describes manual control as an option, off by default', () => {
+    const off = answerQuestion('Can I set the temperature myself?', context(), { locale: 'en', units: 'C' }).text;
+    expect(off).toContain('runs on its own');
+    expect(off).toContain('switch on manual control');
+    const on = answerQuestion('Can I set the temperature myself?', context({ manualControl: true }), { locale: 'en', units: 'C' }).text;
+    expect(on).toContain('Manual control is on');
   });
 
   it('uses computed insights where they exist', () => {
@@ -145,7 +145,7 @@ describe('answering', () => {
   });
 
   it('answers every topic in both languages without a plan to lean on', () => {
-    const questions = ['ideal temperature', 'tonight', 'last night', 'trend', 'calibration', 'recommend', 'savings', 'partner', 'winter', 'preset', 'watch', 'too hot', 'too cold', 'humidity', 'menopause', 'workout', 'jet lag', 'privacy', 'insomnia', 'hello', 'zzz'];
+    const questions = ['ideal temperature', 'tonight', 'last night', 'trend', 'calibration', 'recommend', 'savings', 'partner', 'winter', 'preset', 'watch', 'too hot', 'too cold', 'menopause', 'workout', 'jet lag', 'privacy', 'insomnia', 'hello', 'zzz'];
     for (const locale of ['en', 'fr'] as const) {
       for (const q of questions) {
         const reply = answerQuestion(q, context({ tonight: null, lastNight: null }), { locale, units: 'C' });

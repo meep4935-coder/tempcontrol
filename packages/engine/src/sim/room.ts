@@ -109,11 +109,6 @@ export function sensedTempC(state: RoomState, rng: Rng): number {
   return state.tempC + 0.05 * gaussian(rng);
 }
 
-/** Humidity drifts toward the season's ambient level. */
-export function stepHumidity(humidityPct: number, ambientPct: number, minutes: number): number {
-  return Math.min(95, Math.max(10, humidityPct + ((ambientPct - humidityPct) * minutes) / 180));
-}
-
 /** The mode a thermostat would be left in for the weather: heating season, cooling season, or in between. */
 export function seasonalMode(outdoorC: number, params: RoomParams): HvacMode {
   const canHeat = params.heatRateCPerHour > 0;

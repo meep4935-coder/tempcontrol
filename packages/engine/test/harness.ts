@@ -32,7 +32,6 @@ import {
   type ThermalModelState,
 } from '../src/index';
 import {
-  ambientHumidityPct,
   CLIMATES,
   overnightOutdoorC,
   ROOM_PRESETS,
@@ -112,7 +111,6 @@ export function runNights(opts: HarnessOptions): HarnessResult {
     const date = addDays(opts.startDate, n);
     const outdoorC = overnightOutdoorC(date, climate, seed);
     const s = seasonIndex(date, climate.latitude, outdoorC);
-    const humidityPct = ambientHumidityPct(date, climate, seed);
 
     const prepared = opts.sleepers.map((sleeper) => {
       const bedtimeMs = zonedTimeToMs(date, sleeper.bedtime, climate.timeZone);
@@ -120,7 +118,7 @@ export function runNights(opts: HarnessOptions): HarnessResult {
       if (sleeper.bedtime < sleeper.wakeTime) wakeMs = zonedTimeToMs(date, sleeper.wakeTime, climate.timeZone);
       const options = { ...DEFAULT_OPTIONS, ...sleeper.options };
       const limits = sleeper.limits ?? DEFAULT_LIMITS;
-      const context: NightContext = { humidityPct, ...sleeper.contextFor?.(date) };
+      const context: NightContext = { ...sleeper.contextFor?.(date) };
       const model = models.get(sleeper.id)!;
       const plan = buildNightPlan({ sleeperId: sleeper.id, model, limits, options, bedtimeMs, wakeMs, seasonIndex: s, context });
       return { sleeper, plan, limits, options, context, model, weight: estimateIdeal(model, s).sensitivity };
@@ -136,8 +134,6 @@ export function runNights(opts: HarnessOptions): HarnessResult {
       initialTempC: roomTempC,
       idleSetpointC: 21,
       outdoorMeanC: outdoorC,
-      initialHumidityPct: humidityPct,
-      ambientHumidityPct: humidityPct,
       sleepers: prepared.map((p) => ({
         id: p.sleeper.id,
         truth: p.sleeper.truth,

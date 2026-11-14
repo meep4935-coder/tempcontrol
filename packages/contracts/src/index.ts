@@ -117,12 +117,17 @@ export interface HouseholdDto {
   /** +1 midwinter .. -1 midsummer, as the engine sees tonight. */
   seasonIndex: number;
   /** Tonight's forecast used for planning. */
-  /** Humidity is null unless the room's thermostat reports it. */
-  outlook: { outdoorC: number; humidityPct: number | null };
+  outlook: { outdoorC: number };
   tariffId: string;
   energy: { enabled: boolean; toleranceC: number };
   /** Usual daytime thermostat setting: where the room starts each evening and the baseline for savings. */
   daySetpointC: number;
+  /**
+   * Whether people may set the temperature themselves (by hand, preset or
+   * voice). Off by default: the platform runs automatically. Turning it off
+   * clears any manual temperature and preset.
+   */
+  manualControl: boolean;
   /** A utility peak event declared for the coming night's morning or evening, if any. */
   peakEvent: 'morning' | 'evening' | null;
 }
@@ -193,7 +198,7 @@ export interface SleeperPatch {
 
 /**
  * The room's one climate device: a smart thermostat or smart AC control.
- * The platform assumes nothing else in the room (no fans, no humidifiers).
+ * The platform assumes nothing else in the room.
  */
 export interface DeviceDto {
   id: string;
@@ -202,15 +207,12 @@ export interface DeviceDto {
   brand: string;
   name: string;
   equipment: Equipment;
-  /** Whether this thermostat reports room humidity. Without it, humidity plays no part anywhere. */
-  reportsHumidity: boolean;
 }
 
 export interface NewDevice {
   brand: string;
   name?: string;
   equipment?: Equipment;
-  reportsHumidity?: boolean;
 }
 
 export interface HoldDto {
@@ -228,8 +230,7 @@ export interface RoomDto {
   sleeperIds: string[];
   /** At most one: the room's thermostat. */
   devices: DeviceDto[];
-  /** Last known conditions. Humidity is null unless the thermostat reports it. */
-  climate: { tempC: number; humidityPct: number | null; mode: HvacMode };
+  climate: { tempC: number; mode: HvacMode };
   response: RoomResponse;
   /** A manual temperature waiting to take effect (or in effect during a live night). */
   hold: HoldDto | null;
@@ -262,7 +263,7 @@ export interface SleeperPlanDto {
   confidence: number;
   /** Deliberate half-degree test variation tonight; 0 when not exploring. */
   explorationC: number;
-  /** Tonight's adjustments and why (humidity, cycle, recovery...). */
+  /** Tonight's adjustments and why (cycle, recovery...). */
   modifiers: Modifier[];
   /** What this sleeper's own plan asks for, before blending with a partner. */
   segments: PlanSegment[];
@@ -280,7 +281,7 @@ export interface PlanDto {
   /** Difference between partners' ideal temperatures; 0 for one sleeper. */
   gapC: number;
   limits: ComfortLimits;
-  context: { outdoorC: number; humidityPct: number | null; seasonIndex: number; season: SeasonName; mode: HvacMode };
+  context: { outdoorC: number; seasonIndex: number; season: SeasonName; mode: HvacMode };
   energy: {
     enabled: boolean;
     direction: 'heat' | 'cool' | 'none';
@@ -309,8 +310,6 @@ export interface TickDto {
   phase: Phase | null;
   liveOffsetC: number;
   outdoorC: number;
-  /** Null unless the thermostat reports humidity. */
-  humidityPct: number | null;
   running: 'heat' | 'cool' | 'idle';
   kWh: number;
   /** Live readings, only for sleepers whose wearable reports during the night. */
@@ -358,8 +357,6 @@ export interface NightSummaryDto {
   startMs: number;
   endMs: number;
   outdoorC: number;
-  /** Null unless the thermostat reports humidity. */
-  humidityPct: number | null;
   seasonIndex: number;
   /** Deep-sleep target of the room plan. */
   coreTargetC: number;
@@ -504,6 +501,7 @@ export interface HouseholdPatch {
   tariffId?: string;
   energy?: Partial<HouseholdDto['energy']>;
   daySetpointC?: number;
+  manualControl?: boolean;
   peakEvent?: HouseholdDto['peakEvent'];
 }
 

@@ -68,10 +68,6 @@ export function describeInsight(insight: Insight, opts: TextOptions): string {
         : fr
           ? `En hiver, vous dormez mieux dans une chambre plus fraîche d'environ ${delta(insight.shiftC)} que le reste de l'année.`
           : `In winter you sleep better about ${delta(insight.shiftC)} cooler than during the rest of the year.`;
-    case 'humidNights':
-      return fr
-        ? `Les ${insight.nights} nuits humides (environ ${insight.averagePct}\u00a0% d'humidité) ont obtenu ${n(insight.drop)} points de moins. Ces nuits-là, le plan garde la chambre un peu plus fraîche.`
-        : `The ${insight.nights} humid nights (around ${insight.averagePct}% humidity) scored ${n(insight.drop)} points lower. On those nights the plan keeps the room a little cooler.`;
     case 'overrides':
       return insight.direction === 'warmer'
         ? fr

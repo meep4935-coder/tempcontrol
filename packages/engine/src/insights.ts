@@ -19,7 +19,6 @@ export interface NightRecord {
   experiencedCoreC: number | null;
   thermalQuality: number | null;
   overallQuality: number | null;
-  humidityPct?: number;
   modifiers: ModifierId[];
   /** Manual changes made during the night. */
   overrides: number;
@@ -47,8 +46,6 @@ export type Insight =
   | { id: 'bestBand'; lowC: number; highC: number; gain: number; nightsIn: number; nightsOut: number }
   /** The ideal temperature differs between winter and the rest of the year. */
   | { id: 'seasonShift'; shiftC: number }
-  /** Humid nights scored worse. */
-  | { id: 'humidNights'; nights: number; drop: number; averagePct: number }
   /** The user keeps correcting the plan in one direction. */
   | { id: 'overrides'; count: number; direction: 'warmer' | 'cooler' }
   /** Recent nights compared with the ones before. */
@@ -101,15 +98,6 @@ export function buildInsights(model: ThermalModelState, history: readonly NightR
     out.push({ id: 'seasonShift', shiftC: round1(estimate.seasonShiftC) });
   }
 
-  const withHumidity = scored.filter((n) => n.humidityPct !== undefined);
-  const humid = withHumidity.filter((n) => n.humidityPct! > 60);
-  const comfortable = withHumidity.filter((n) => n.humidityPct! <= 60);
-  if (humid.length >= 4 && comfortable.length >= 4) {
-    const drop = mean(comfortable.map((n) => n.thermalQuality)) - mean(humid.map((n) => n.thermalQuality));
-    if (drop >= 2) {
-      out.push({ id: 'humidNights', nights: humid.length, drop: round1(drop), averagePct: Math.round(mean(humid.map((n) => n.humidityPct!))) });
-    }
-  }
   const recent = history.slice(-14);
   const overridden = recent.filter((n) => n.overrides > 0 && n.overrideDeltaC !== undefined && n.overrideDeltaC !== 0);
   if (overridden.length >= 3) {

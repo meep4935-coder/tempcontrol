@@ -46,10 +46,14 @@ export type VoiceOutcome =
   | { type: 'presetNotFound' }
   | { type: 'napStarted'; minutes: number; targetC: number }
   | { type: 'resumed' }
-  | { type: 'status'; roomTempC: number; targetC: number | null; humidityPct?: number; mode: 'auto' | 'hold' | 'preset' | 'idle' }
+  | { type: 'status'; roomTempC: number; targetC: number | null; mode: 'auto' | 'hold' | 'preset' | 'idle' }
   | { type: 'nightStarted'; targetC: number }
   | { type: 'nightEnded' }
   | { type: 'outOfRange'; minC: number; maxC: number }
+  /** Manual control is switched off, so a request to set the temperature was not carried out. */
+  | { type: 'manualControlOff' }
+  /** "I'm hot" / "I'm cold" was recorded as feedback; the temperature itself was not changed by hand. */
+  | { type: 'feedbackNoted' }
   | { type: 'notUnderstood' };
 
 export interface VoiceReplyOptions {

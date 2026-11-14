@@ -42,7 +42,7 @@ interface Scenario {
   tariffId: string;
   energy: boolean;
   roomName: string;
-  thermostat: { brand: string; equipment: Equipment; name: string; reportsHumidity: boolean };
+  thermostat: { brand: string; equipment: Equipment; name: string };
   sleepers: ScenarioSleeper[];
 }
 
@@ -59,7 +59,7 @@ export const SCENARIOS: Scenario[] = [
     tariffId: 'qc-flex-d',
     energy: true,
     roomName: 'Bedroom',
-    thermostat: { brand: 'mysa', equipment: 'miniSplit', name: 'Mysa (mini-split)', reportsHumidity: true },
+    thermostat: { brand: 'mysa', equipment: 'miniSplit', name: 'Mysa (mini-split)' },
     sleepers: [
       {
         name: 'Camille',
@@ -95,7 +95,7 @@ export const SCENARIOS: Scenario[] = [
     tariffId: 'on-tou',
     energy: true,
     roomName: 'Bedroom',
-    thermostat: { brand: 'nest', equipment: 'central', name: 'Nest thermostat', reportsHumidity: true },
+    thermostat: { brand: 'nest', equipment: 'central', name: 'Nest thermostat' },
     sleepers: [
       {
         name: 'Sam',
@@ -112,15 +112,15 @@ export const SCENARIOS: Scenario[] = [
     id: 'night-sweats',
     name: { en: 'Night sweats in Ottawa', fr: 'Sueurs nocturnes à Ottawa' },
     description: {
-      en: 'A sleeper with frequent hot flashes, menopause mode switched on and a live watch, on a thermostat that does not report humidity.',
-      fr: "Une personne aux bouffées de chaleur fréquentes : mode ménopause activé et montre en direct, avec un thermostat qui ne mesure pas l'humidité.",
+      en: 'A sleeper with frequent hot flashes, menopause mode switched on and a live watch,.',
+      fr: "Une personne aux bouffées de chaleur fréquentes : mode ménopause activé et montre en direct.",
     },
     household: 'Ottawa',
     climateId: 'ottawa',
     tariffId: 'on-ulo',
     energy: true,
     roomName: 'Bedroom',
-    thermostat: { brand: 'ecobee', equipment: 'central', name: 'ecobee thermostat', reportsHumidity: false },
+    thermostat: { brand: 'ecobee', equipment: 'central', name: 'ecobee thermostat' },
     sleepers: [
       {
         name: 'Dominique',
@@ -161,6 +161,7 @@ export function seedDemo(store: Store, scenarioId: string | undefined, opts: { d
       tariffId: sc.tariffId,
       energy: { enabled: sc.energy, toleranceC: 0.5 },
       daySetpointC: 21,
+      manualControl: false,
       peakEvent: null,
       seed: opts.seed ?? 7,
     });
@@ -169,7 +170,7 @@ export function seedDemo(store: Store, scenarioId: string | undefined, opts: { d
       householdId,
       name: sc.roomName,
       response: {},
-      climate: { tempC: 21, humidityPct: null },
+      climate: { tempC: 21 },
       pendingHold: null,
       activePresetId: null,
       recommendation: null,

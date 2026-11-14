@@ -51,11 +51,3 @@ export function outdoorAtC(overnightMeanC: number, fractionOfNight: number): num
   return overnightMeanC + 1.5 - 3 * Math.min(1, Math.max(0, fractionOfNight));
 }
 
-/**
- * Bedroom humidity through the year: dry in the
- * heating season, humid in summer.
- */
-export function ambientHumidityPct(date: string, climate: Climate, seed: number): number {
-  const idx = calendarSeasonIndex(date, climate.latitude);
-  return Math.min(85, Math.max(15, 44 - 14 * idx + 6 * smoothNoise(seed, date, 'humidity')));
-}

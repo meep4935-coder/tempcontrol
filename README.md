@@ -80,11 +80,11 @@ Before any data it starts from a typical-adult curve, so the first night already
 
 **A control loop through the night.** Every few minutes: a manual temperature wins if one is set; otherwise the plan, nudged by live readings when the wearable reports during the night (restless and warm: cool half a degree; a hot flash, for those who switch that mode on: a short burst of cooling). In the morning the night becomes evidence for each sleeper's model.
 
-**A recommendation each morning.** "Your data suggest X, so we recommend Y." The recommended setting is the automatic schedule. A room running on one of the user's presets is offered the choice every morning: apply the recommended setting, or keep the preset. The model keeps learning either way.
+**A recommendation each morning** (for rooms running a preset, when manual control is on). "Your data suggest X, so we recommend Y." The recommended setting is the automatic schedule. A room running on one of the user's presets is offered the choice every morning: apply the recommended setting, or keep the preset. The model keeps learning either way.
 
 **Savings.** Every night's energy use and cost is compared with leaving the thermostat at its daytime setting, and the running total is reported.
 
-**Humidity** is used only when the thermostat reports it. Otherwise it plays no part anywhere.
+**Manual control is an option, off by default.** The platform runs automatically; setting the temperature by hand, with a preset or by voice only works once the household switches it on. Saying "I'm hot" or "I'm cold" always counts as feedback.
 
 **A built-in assistant.** It recognises the questions people ask about sleep temperature, in English and French, and answers each from that sleeper's own numbers. It is the platform's own code (`packages/engine/src/assistant.ts`): no outside AI service, nothing leaves the platform, and it declines medical questions.
 

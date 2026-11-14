@@ -465,9 +465,9 @@ describe('formatVoiceReply', () => {
     ],
     [{ type: 'resumed' }, 'OK, back to your automatic schedule.', "D'accord, je reprends l'horaire automatique."],
     [
-      { type: 'status', roomTempC: 21.04, targetC: 19, humidityPct: 44.6, mode: 'auto' },
-      "It's 21 °C in the room with 45% humidity, and your schedule is aiming for 19 °C.",
-      `Il fait 21${NB}°C dans la chambre, avec 45${NB}% d'humidité, et votre horaire vise 19${NB}°C.`,
+      { type: 'status', roomTempC: 21.04, targetC: 19, mode: 'auto' },
+      "It's 21 °C in the room, and your schedule is aiming for 19 °C.",
+      `Il fait 21${NB}°C dans la chambre, et votre horaire vise 19${NB}°C.`,
     ],
     [
       { type: 'status', roomTempC: 20.5, targetC: 19.5, mode: 'hold' },
@@ -538,8 +538,10 @@ describe('formatVoiceReply', () => {
   it('never uses markdown, emoji or line breaks', () => {
     const outcomes: VoiceOutcome[] = [
       { type: 'resumed' },
+      { type: 'manualControlOff' },
+      { type: 'feedbackNoted' },
       { type: 'notUnderstood' },
-      { type: 'status', roomTempC: 21, targetC: 19, humidityPct: 40, mode: 'auto' },
+      { type: 'status', roomTempC: 21, targetC: 19, mode: 'auto' },
     ];
     for (const outcome of outcomes) {
       for (const locale of ['en', 'fr'] as const) {

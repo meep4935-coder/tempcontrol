@@ -30,8 +30,6 @@ export interface SleeperTruth {
   lutealShiftC: number;
   strainShiftC: number;
   alcoholShiftC: number;
-  /** Degrees cooler wanted when humidity is 20 points above comfortable. */
-  humidityShiftC: number;
   baseline: {
     efficiency: number;
     awakenings: number;
@@ -60,7 +58,6 @@ export const DEFAULT_TRUTH: SleeperTruth = {
   lutealShiftC: -0.4,
   strainShiftC: -0.4,
   alcoholShiftC: -0.5,
-  humidityShiftC: -0.8,
   baseline: { efficiency: 0.91, awakenings: 1.5, restlessness: 0.09, deepShare: 0.2, remShare: 0.23, hrvMs: 55, restingHr: 56, latencyMin: 12 },
   noise: 1.5,
   feedbackRate: 0.5,
@@ -84,7 +81,6 @@ export function trueIdealC(truth: SleeperTruth, phase: Phase, ctx: TruthContext)
     if (ctx.cyclePhase === 'luteal') t += truth.lutealShiftC;
     if (ctx.recovery?.alcohol) t += truth.alcoholShiftC;
     if (ctx.recovery?.highStrain && phase !== 'rem') t += truth.strainShiftC;
-    if (ctx.humidityPct !== undefined) t += truth.humidityShiftC * clamp((ctx.humidityPct - 55) / 20, 0, 1);
   }
   if (ctx.recovery?.illness) t += 0.5;
   return t;

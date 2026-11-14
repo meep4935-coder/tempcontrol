@@ -27,9 +27,11 @@ afterEach(async () => {
   app = undefined;
 });
 
-async function start(scenario = 'couple', historyNights = 0, today = TODAY): Promise<{ app: FastifyInstance; store: Store }> {
+/** Most tests exercise manual control, so it is switched on here; the "manual control" tests start with the default (off). */
+async function start(scenario = 'couple', historyNights = 0, today = TODAY, manual = true): Promise<{ app: FastifyInstance; store: Store }> {
   const store = new Store(openDb(':memory:'));
   await createDemo(store, scenario, historyNights, { today, seed: 7 });
+  if (manual) store.saveHousehold({ ...store.household()!, manualControl: true });
   app = buildApp({ store });
   return { app, store };
 }
@@ -53,7 +55,7 @@ describe('demo state', () => {
     expect(state.rooms[0]!.sleeperIds).toEqual(state.sleepers.map((s) => s.id));
     // The room has exactly one device: its thermostat.
     expect(state.rooms[0]!.devices).toHaveLength(1);
-    expect(state.rooms[0]!.devices[0]).toMatchObject({ brand: 'mysa', equipment: 'miniSplit', reportsHumidity: true });
+    expect(state.rooms[0]!.devices[0]).toMatchObject({ brand: 'mysa', equipment: 'miniSplit' });
     expect(state.savings).toMatchObject({ nights: 0, savedKWh: 0, savedCents: 0 });
     expect(state.presets).toHaveLength(3);
     expect(state.catalog.wearables.length).toBeGreaterThan(5);
@@ -450,7 +452,7 @@ describe('the thermostat', () => {
     expect((await call('POST', '/api/sim/advance', { nights: 1 })).status).toBe(409);
 
     const { body } = await call<StateDto>('POST', `/api/rooms/${room.id}/devices`, { brand: 'sinope', equipment: 'baseboard' });
-    expect(body.rooms[0]!.devices).toEqual([expect.objectContaining({ brand: 'sinope', equipment: 'baseboard', reportsHumidity: false })]);
+    expect(body.rooms[0]!.devices).toEqual([expect.objectContaining({ brand: 'sinope', equipment: 'baseboard' })]);
     expect((await call('GET', `/api/rooms/${room.id}/plan`)).status).toBe(200);
   });
 
@@ -465,36 +467,57 @@ describe('the thermostat', () => {
   });
 });
 
-describe('humidity', () => {
-  it('is used when the thermostat reports it', async () => {
-    await start('solo', 2);
+describe('manual control', () => {
+  it('is off by default: the platform runs automatically', async () => {
+    await start('couple', 0, TODAY, false);
     const state = await getState();
-    expect(state.household.outlook.humidityPct).toEqual(expect.any(Number));
-    const nights = (await call<NightSummaryDto[]>('GET', `/api/rooms/${state.rooms[0]!.id}/nights`)).body;
-    expect(nights[0]!.humidityPct).toEqual(expect.any(Number));
-    const detail = (await call<NightDetailDto>('GET', `/api/nights/${nights[0]!.id}`)).body;
-    expect(detail.trace.every((tick) => typeof tick.humidityPct === 'number')).toBe(true);
+    expect(state.household.manualControl).toBe(false);
+    const room = state.rooms[0]!;
+    const blocked = await call<{ error: string }>('POST', `/api/rooms/${room.id}/hold`, { targetC: 21 });
+    expect(blocked).toMatchObject({ status: 409, body: { error: 'manual_control_off' } });
+    const preset = state.presets[0]!;
+    expect((await call<{ error: string }>('POST', `/api/presets/${preset.id}/activate`, { roomId: room.id })).body.error).toBe('manual_control_off');
+    // Everything automatic still works.
+    expect((await call('GET', `/api/rooms/${room.id}/plan`)).status).toBe(200);
+    expect((await call('POST', '/api/sim/advance', { nights: 1 })).status).toBe(200);
+    expect((await call<RecommendationDto>('GET', `/api/rooms/${room.id}/recommendation`)).body.mode).toBe('auto');
   });
 
-  it('plays no part at all when the thermostat does not report it', async () => {
-    // A humid July night in Ottawa, on a thermostat without a humidity sensor.
-    await start('night-sweats', 3, '2026-07-20');
+  it('answers voice requests to set the temperature with an explanation, but still takes feelings as feedback', async () => {
+    await start('couple', 0, TODAY, false);
+    const [camille, alex] = (await getState()).sleepers;
+    const set = await call<VoiceResponse>('POST', '/api/voice', { text: 'set the bedroom to 21', sleeperId: alex!.id });
+    expect(set.body.outcome).toEqual({ type: 'manualControlOff' });
+    expect(set.body.reply).toContain('Manual control is switched off');
+    expect((await call<VoiceResponse>('POST', '/api/voice', { text: 'a bit warmer', sleeperId: alex!.id })).body.outcome).toEqual({ type: 'manualControlOff' });
+    expect((await call<VoiceResponse>('POST', '/api/voice', { text: "j'ai chaud", sleeperId: camille!.id })).body.outcome).toEqual({ type: 'feedbackNoted' });
+    expect((await getState()).rooms[0]!.hold).toBeNull();
+    // Status and "back to automatic" need no manual control.
+    expect((await call<VoiceResponse>('POST', '/api/voice', { text: "what's the temperature?", sleeperId: alex!.id })).body.outcome.type).toBe('status');
+  });
+
+  it('can be switched on, and switching it off hands the room back to the automatic schedule', async () => {
+    await start('solo', 0, TODAY, false);
     const state = await getState();
     const room = state.rooms[0]!;
-    expect(room.devices[0]!.reportsHumidity).toBe(false);
-    expect(state.household.outlook.humidityPct).toBeNull();
-    expect(room.climate.humidityPct).toBeNull();
+    expect((await call<StateDto>('PATCH', '/api/household', { manualControl: true })).body.household.manualControl).toBe(true);
+    const preset = state.presets.find((p) => p.kind === 'hold')!;
+    await call('POST', `/api/presets/${preset.id}/activate`, { roomId: room.id });
+    await call('POST', `/api/rooms/${room.id}/hold`, { targetC: 22 });
+    expect((await getState()).rooms[0]).toMatchObject({ activePresetId: preset.id, hold: { targetC: 22 } });
 
+    const off = (await call<StateDto>('PATCH', '/api/household', { manualControl: false })).body;
+    expect(off.rooms[0]).toMatchObject({ activePresetId: null, hold: null });
     const plan = (await call<PlanDto>('GET', `/api/rooms/${room.id}/plan`)).body;
-    expect(plan.context.humidityPct).toBeNull();
-    expect(plan.sleepers[0]!.modifiers.map((m) => m.id)).not.toContain('humidity');
+    expect(plan.presetName).toBeNull();
+    expect(plan.hold).toBeNull();
+  });
 
-    const nights = (await call<NightSummaryDto[]>('GET', `/api/rooms/${room.id}/nights`)).body;
-    expect(nights.every((n) => n.humidityPct === null && !n.sleepers[0]!.modifiers.includes('humidity'))).toBe(true);
-    const detail = (await call<NightDetailDto>('GET', `/api/nights/${nights[0]!.id}`)).body;
-    expect(detail.trace.every((tick) => tick.humidityPct === null)).toBe(true);
-    const insights = (await call<Insight[]>('GET', `/api/sleepers/${state.sleepers[0]!.id}/insights`)).body;
-    expect(insights.map((i) => i.id)).not.toContain('humidNights');
+  it('is not needed for the assistant to explain it', async () => {
+    await start('solo', 3, TODAY, false);
+    const id = (await getState()).sleepers[0]!.id;
+    const reply = (await call<AssistantReplyDto>('POST', '/api/assistant', { sleeperId: id, message: 'Can I set the temperature myself?' })).body;
+    expect(reply.text).toContain('switch on manual control');
   });
 });
 

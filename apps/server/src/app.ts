@@ -69,6 +69,7 @@ const householdPatch = z
     tariffId: z.string().refine((id) => id === 'flat' || getTariff(id) !== undefined, 'Unknown tariff'),
     energy: z.object({ enabled: z.boolean(), toleranceC: z.number().min(0).max(1.5) }).partial(),
     daySetpointC: temperature,
+    manualControl: z.boolean(),
     peakEvent: z.enum(['morning', 'evening']).nullable(),
   })
   .partial()
@@ -89,7 +90,6 @@ const deviceBody = z
     brand: z.string().refine((id) => CLIMATE_BRANDS.some((b) => b.id === id), 'Unknown brand'),
     name: z.string().trim().min(1).max(60).optional(),
     equipment: z.enum(['central', 'baseboard', 'miniSplit', 'windowAc']).optional(),
-    reportsHumidity: z.boolean().optional(),
   })
   .strict();
 
@@ -131,6 +131,10 @@ export function buildApp({ store, webRoot, logger = false }: AppOptions): Fastif
     return r;
   };
   const state = (): StateDto => stateDto(store, live.dto());
+  /** Setting the temperature yourself is an option the household turns on; the platform runs automatically otherwise. */
+  const requireManualControl = (): void => {
+    if (!household().manualControl) throw new RequestError(409, 'manual_control_off', 'Manual control is switched off. Turn it on in the settings to set the temperature yourself.');
+  };
   /** Settings that feed tonight's plan cannot change under a night that is already running. */
   const requireIdle = (): void => {
     if (live.running) throw new RequestError(409, 'live_running', 'A night is playing. End it first.');
@@ -221,6 +225,7 @@ export function buildApp({ store, webRoot, logger = false }: AppOptions): Fastif
   /* ------------------------------------------------------- manual control */
 
   app.post<{ Params: { roomId: string } }>('/api/rooms/:roomId/hold', async (req): Promise<HoldDto> => {
+    requireManualControl();
     const room = roomOr404(req.params.roomId);
     const body = holdBody.parse(req.body);
     if (body.sleeperId) sleeperOr404(body.sleeperId);
@@ -266,6 +271,7 @@ export function buildApp({ store, webRoot, logger = false }: AppOptions): Fastif
   /** Make a preset the room's standing setting: it replaces the automatic schedule every night until cleared. */
   app.post<{ Params: { id: string }; Body: unknown }>('/api/presets/:id/activate', async (req): Promise<StateDto> => {
     requireIdle();
+    requireManualControl();
     const preset = store.preset(req.params.id);
     if (!preset) throw new RequestError(404, 'not_found', 'Preset not found.');
     const { roomId } = z.object({ roomId: z.string() }).strict().parse(req.body);
@@ -343,6 +349,10 @@ export function buildApp({ store, webRoot, logger = false }: AppOptions): Fastif
     const h = household();
     const patch = householdPatch.parse(req.body);
     store.saveHousehold({ ...h, ...patch, energy: { ...h.energy, ...patch.energy } });
+    // Turning manual control off hands every room back to the automatic schedule.
+    if (patch.manualControl === false) {
+      for (const room of store.rooms(h.id)) store.saveRoom({ ...room, pendingHold: null, activePresetId: null });
+    }
     return state();
   });
 
@@ -360,7 +370,6 @@ export function buildApp({ store, webRoot, logger = false }: AppOptions): Fastif
       brand: brand.id,
       name: body.name ?? brand.name,
       equipment: body.equipment ?? brand.equipment[0] ?? 'central',
-      reportsHumidity: body.reportsHumidity ?? false,
     });
     return state();
   });

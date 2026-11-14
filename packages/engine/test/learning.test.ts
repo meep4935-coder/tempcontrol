@@ -72,10 +72,10 @@ describe('end-of-night learning', () => {
 
   it('removes tonight\'s context adjustments before learning', () => {
     const model = createModel();
-    const humid = planFor({ context: { humidityPct: 70 } });
-    expect(humid.segments.find((s) => s.phase === 'deep')!.targetC).toBe(17.5);
-    // The room was a degree cooler because of humidity; the neutral-context reading is unchanged.
-    expect(experiencedCoreC(model, humid, tracking(humid))).toBeCloseTo(18.5, 6);
+    const trained = planFor({ options: { ...DEFAULT_OPTIONS, explore: false, recoveryAware: true }, context: { recovery: { highStrain: true } } });
+    expect(trained.segments.find((s) => s.phase === 'deep')!.targetC).toBe(18);
+    // The room was half a degree cooler because of hard training; the neutral-context reading is unchanged.
+    expect(experiencedCoreC(model, trained, tracking(trained))).toBeCloseTo(18.5, 6);
   });
 
   it('ignores the wind-down and the wake-up warming', () => {
@@ -209,14 +209,6 @@ describe('insights', () => {
     expect(band).toMatchObject({ id: 'bestBand', gain: 12, nightsIn: 10, nightsOut: 10 });
     expect((band as { lowC: number }).lowC).toBeLessThanOrEqual(19.2);
     expect((band as { highC: number }).highC).toBeGreaterThan(19.2);
-  });
-
-  it('notices humid nights that scored worse', () => {
-    const humid = Array.from({ length: 12 }, (_, i) => (i < 6 ? night(i, { humidityPct: 70, thermalQuality: 68 }) : night(i, { humidityPct: 45, thermalQuality: 78 })));
-    expect(buildInsights(createModel(), humid, 0).find((i) => i.id === 'humidNights')).toMatchObject({ nights: 6, drop: 10, averagePct: 70 });
-    // Without humidity readings there is nothing to say about it.
-    const unknown = Array.from({ length: 12 }, (_, i) => night(i, { thermalQuality: i < 6 ? 68 : 78 }));
-    expect(ids(unknown)).not.toContain('humidNights');
   });
 
   it('notices a run of corrections in one direction', () => {

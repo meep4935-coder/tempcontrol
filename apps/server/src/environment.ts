@@ -20,7 +20,6 @@ export interface Commands {
 export interface Observation {
   t: number;
   roomTempC: number;
-  humidityPct: number;
   outdoorC: number;
   running: 'heat' | 'cool' | 'idle';
   /** Electricity used since the previous observation, when the equipment reports or implies it. */
@@ -86,7 +85,7 @@ export class SimEnvironment implements NightEnvironment {
 
 /** A thermostat, mini-split controller or similar, however it is reached (maker's API, an aggregator, Matter). */
 export interface ClimateAdapter {
-  read(): Promise<{ roomTempC: number; humidityPct?: number; setpointC: number | null; mode: HvacMode; running: 'heat' | 'cool' | 'idle' }>;
+  read(): Promise<{ roomTempC: number; setpointC: number | null; mode: HvacMode; running: 'heat' | 'cool' | 'idle' }>;
   setSetpoint(targetC: number): Promise<void>;
   /** Give control back to the thermostat's own schedule. */
   release(): Promise<void>;

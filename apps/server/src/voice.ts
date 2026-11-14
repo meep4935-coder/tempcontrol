@@ -41,6 +41,17 @@ export async function handleVoice(store: Store, live: LiveManager, req: VoiceReq
   };
 
   let outcome: VoiceOutcome;
+  // Setting the temperature yourself is an option the household turns on. Saying how you feel always counts.
+  const manualIntents = ['setTemperature', 'adjust', 'activatePreset'];
+  if (!household.manualControl && manualIntents.includes(intent.type)) {
+    if (intent.type === 'adjust' && intent.feeling) {
+      runner?.feel(sleeper.id, intent.feeling);
+      outcome = { type: 'feedbackNoted' };
+    } else {
+      outcome = { type: 'manualControlOff' };
+    }
+    return { intent: parsed.intent, confidence: parsed.confidence, outcome, reply: formatVoiceReply(outcome, { locale: sleeper.locale, units: sleeper.units }) };
+  }
   switch (intent.type) {
     case 'setTemperature': {
       if (intent.valueC < HARD_LIMITS.minC || intent.valueC > HARD_LIMITS.maxC) {
@@ -88,7 +99,6 @@ export async function handleVoice(store: Store, live: LiveManager, req: VoiceReq
         type: 'status',
         roomTempC: reading?.roomTempC ?? room.climate.tempC,
         targetC: runner ? runner.currentTargetC() : (room.pendingHold?.targetC ?? null),
-        humidityPct: (reading ? reading.humidityPct : room.climate.humidityPct) ?? undefined,
         mode: held ? (held.source === 'preset' ? 'preset' : 'hold') : runner ? 'auto' : 'idle',
       };
       break;

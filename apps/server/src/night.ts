@@ -2,7 +2,7 @@
  * Planning and running one night for one room.
  *
  * `planNight` gathers everything known this evening (each sleeper's model,
- * the weather, humidity, prices, tonight's flags) and produces the schedule.
+ * the weather, prices, tonight's flags) and produces the schedule.
  * `NightRunner` then drives that schedule through the control loop, one
  * interval at a time, and in the morning turns what happened into learning.
  *
@@ -60,7 +60,6 @@ import {
   type Tariff,
 } from '@tempcontrol/engine';
 import {
-  ambientHumidityPct,
   CLIMATES,
   overnightOutdoorC,
   ROOM_PRESETS,
@@ -131,7 +130,6 @@ export function sleeperTonight(sleeper: SleeperRecord, household: HouseholdRecor
 export interface Outlook {
   climate: Climate;
   outdoorC: number;
-  humidityPct: number;
   seasonIndex: number;
 }
 
@@ -141,7 +139,6 @@ export function outlookFor(household: HouseholdRecord): Outlook {
   return {
     climate,
     outdoorC,
-    humidityPct: ambientHumidityPct(household.date, climate, household.seed),
     seasonIndex: seasonIndex(household.date, climate.latitude, outdoorC),
   };
 }
@@ -180,8 +177,6 @@ export interface NightSetup {
   roomPlan: RoomPlan;
   periods: PricePeriod[];
   changes: EnergyChange[];
-  /** Tonight's humidity as the thermostat reports it; null when it does not. */
-  humidityPct: number | null;
   dto: PlanDto;
 }
 
@@ -204,8 +199,6 @@ export function planNight(store: Store, roomId: string, opts: PlanOptions = {}):
   const { climate } = outlook;
   const s = outlook.seasonIndex;
   const preset = room.activePresetId && !opts.automatic ? store.preset(room.activePresetId) : undefined;
-  // Humidity only exists for the platform if the thermostat measures it.
-  const humidityPct = thermostat.reportsHumidity ? outlook.humidityPct : null;
 
   const inRoom = store.sleepers(household.id).filter((x) => x.roomId === roomId);
   const chosen = opts.nap ? inRoom.filter((x) => x.id === opts.nap!.sleeperId) : inRoom;
@@ -213,7 +206,7 @@ export function planNight(store: Store, roomId: string, opts: PlanOptions = {}):
 
   const sleepers: PlannedSleeper[] = chosen.map((record) => {
     const tonight = sleeperTonight(record, household, climate.timeZone);
-    const context: NightContext = opts.nap ? {} : { humidityPct: humidityPct ?? undefined, cyclePhase: tonight.cyclePhase ?? undefined, recovery: tonight.recovery };
+    const context: NightContext = opts.nap ? {} : { cyclePhase: tonight.cyclePhase ?? undefined, recovery: tonight.recovery };
 
     let plan: NightPlan;
     if (opts.nap) {
@@ -292,7 +285,6 @@ export function planNight(store: Store, roomId: string, opts: PlanOptions = {}):
     limits: roomPlan.limits,
     context: {
       outdoorC: outlook.outdoorC,
-      humidityPct,
       seasonIndex: s,
       season: seasonName(household.date, climate.latitude),
       mode: seasonalMode(outlook.outdoorC, equipment),
@@ -302,7 +294,7 @@ export function planNight(store: Store, roomId: string, opts: PlanOptions = {}):
     presetName: preset?.name ?? null,
   };
 
-  return { kind: opts.nap ? 'nap' : 'night', household, room, devices, thermostat, outlook, sleepers, roomPlan, periods, changes, humidityPct, dto };
+  return { kind: opts.nap ? 'nap' : 'night', household, room, devices, thermostat, outlook, sleepers, roomPlan, periods, changes, dto };
 }
 
 /* --------------------------------------------------------------------- running */
@@ -320,8 +312,6 @@ function simulatedWorld(setup: NightSetup): WorldSetup {
     initialTempC: household.daySetpointC + 0.4 * (rng() - 0.5),
     idleSetpointC: household.daySetpointC,
     outdoorMeanC: outlook.outdoorC,
-    initialHumidityPct: outlook.humidityPct,
-    ambientHumidityPct: outlook.humidityPct,
     sleepers: setup.sleepers.map((p) => ({
       id: p.record.id,
       truth: p.record.truth,
@@ -402,9 +392,8 @@ export class NightRunner {
     return decideSetpoint({ t, plan: this.setup.roomPlan, hold: this.hold, liveOffsetC: liveOffset(this.live, t) }).targetC;
   }
 
-  lastReading(): { roomTempC: number; humidityPct: number | null } | null {
-    const reports = this.setup.thermostat.reportsHumidity;
-    return this.lastObservation ? { roomTempC: this.lastObservation.roomTempC, humidityPct: reports ? this.lastObservation.humidityPct : null } : null;
+  lastReading(): { roomTempC: number } | null {
+    return this.lastObservation ? { roomTempC: this.lastObservation.roomTempC } : null;
   }
 
   private applyHold(input: HoldInput, startMs: number): void {
@@ -499,7 +488,6 @@ export class NightRunner {
       phase: decision.phase ?? null,
       liveOffsetC: decision.liveOffsetC,
       outdoorC: Math.round(obs.outdoorC * 10) / 10,
-      humidityPct: this.setup.thermostat.reportsHumidity ? Math.round(obs.humidityPct) : null,
       running: obs.running,
       kWh: obs.kWh,
       vitals,
@@ -614,7 +602,6 @@ export class NightRunner {
       startMs: roomPlan.startMs,
       endMs: this.endedEarlyAt ?? roomPlan.endMs,
       outdoorC: Math.round(outlook.outdoorC * 10) / 10,
-      humidityPct: this.setup.humidityPct === null ? null : Math.round(mean(this.trace.map((tick) => tick.humidityPct ?? 0))),
       seasonIndex: round2(s),
       coreTargetC: Math.min(...roomPlan.segments.map((seg) => seg.targetC)),
       avgRoomTempC: round2(mean(asleep.map((tick) => tick.roomTempC))),
@@ -636,7 +623,7 @@ export class NightRunner {
       this.store.saveRoom({
         ...room,
         response: updateRoomResponse(room.response, samples),
-        climate: last ? { tempC: last.roomTempC, humidityPct: last.humidityPct } : room.climate,
+        climate: last ? { tempC: last.roomTempC } : room.climate,
         pendingHold: null,
       });
       if (opts.advanceClock !== false) advanceClock(this.store);

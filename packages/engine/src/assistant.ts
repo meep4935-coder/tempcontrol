@@ -35,7 +35,6 @@ export type AssistantTopic =
   | 'wearable'
   | 'tooHot'
   | 'tooCold'
-  | 'humidity'
   | 'health'
   | 'recovery'
   | 'travel'
@@ -49,6 +48,8 @@ export interface AssistantContext {
   insights: Insight[];
   season: SeasonName;
   options: SleeperOptions;
+  /** Whether the household has switched on setting the temperature by hand. */
+  manualControl: boolean;
   wearable: { name: string; delivery: 'live' | 'morning' };
   /** Tonight's schedule for the room, or null if none can be made. */
   tonight: {
@@ -65,8 +66,6 @@ export interface AssistantContext {
     partners: number;
     /** Difference between the partners' ideal temperatures. */
     gapC: number;
-    /** Whether the thermostat reports humidity, and tonight's reading if so. */
-    humidityPct: number | null;
   } | null;
   lastNight: {
     experiencedCoreC: number | null;
@@ -118,7 +117,6 @@ const PHRASES: Record<Exclude<AssistantTopic, 'unknown'>, string[]> = {
     'manuel', 'prereglage', 'changer la temperature', 'regler', 'controle', 'vocal', 'voix',
   ],
   wearable: ['watch', 'ring', 'band', 'wearable', 'oura', 'whoop', 'garmin', 'fitbit', 'sync', 'live', 'montre', 'bague', 'bracelet', 'synchron', 'en direct'],
-  humidity: ['humid', 'dry air', 'moist', 'humidite', 'air sec'],
   health: ['cycle', 'period', 'menopause', 'hot flash', 'hot flush', 'luteal', 'regles', 'bouffee', 'menstru'],
   recovery: ['workout', 'training', 'exercise', 'gym', 'alcohol', 'drink', 'wine', 'beer', 'sick', 'ill', 'cold or flu', 'entrainement', 'exercice', 'sport', 'alcool', 'vin', 'biere', 'malade', 'grippe'],
   travel: ['travel', 'jet lag', 'jetlag', 'trip', 'time zone', 'flight', 'nap', 'voyage', 'decalage', 'fuseau', 'vol', 'sieste'],
@@ -209,7 +207,6 @@ const RELATED: Record<AssistantTopic, AssistantTopic[]> = {
   wearable: ['learning', 'tonight', 'ideal'],
   tooHot: ['control', 'ideal', 'tonight'],
   tooCold: ['control', 'ideal', 'tonight'],
-  humidity: ['tonight', 'ideal', 'learning'],
   health: ['tonight', 'control', 'learning'],
   recovery: ['tonight', 'lastNight', 'learning'],
   travel: ['tonight', 'control', 'ideal'],
@@ -257,7 +254,6 @@ export function answerQuestion(question: string, ctx: AssistantContext, opts: As
     if (!tonight) return [];
     const out: string[] = [];
     const text: Record<Modifier['id'], [string, string]> = {
-      humidity: ['the air is humid', "l'air est humide"],
       cycle: ['of where you are in your cycle', 'de la phase de votre cycle'],
       menopause: ['menopause mode is on', 'le mode ménopause est activé'],
       strain: ['you trained hard today', "vous vous êtes beaucoup entraîné aujourd'hui"],
@@ -415,9 +411,13 @@ export function answerQuestion(question: string, ctx: AssistantContext, opts: As
       break;
     case 'control':
       paragraphs.push(
-        fr
-          ? "Vous gardez toujours la main. Une température réglée à la main, dans l'application ou à la voix (« mets la chambre à 19 »), a priorité pour la nuit. Un préréglage remplace le réglage automatique nuit après nuit, jusqu'à ce que vous reveniez à l'automatique."
-          : 'You are always in charge. A temperature set by hand, in the app or by voice ("set the bedroom to 19"), takes priority for the night. A preset replaces the automatic setting night after night until you go back to automatic.',
+        !ctx.manualControl
+          ? fr
+            ? "Par défaut, la plateforme fonctionne toute seule : vous n'avez rien à régler. Si vous voulez fixer la température vous-même (à la main, par préréglage ou à la voix), activez le contrôle manuel dans les paramètres. Vous pouvez toujours dire « j'ai chaud » ou « j'ai froid » : cela améliore votre horaire automatique."
+            : 'By default the platform runs on its own: there is nothing for you to set. If you want to set the temperature yourself (by hand, with a preset or by voice), switch on manual control in the settings. You can always say "I\'m hot" or "I\'m cold": that improves your automatic schedule.'
+          : fr
+            ? "Le contrôle manuel est activé. Une température réglée à la main, dans l'application ou à la voix (« mets la chambre à 19 »), a priorité pour la nuit. Un préréglage remplace le réglage automatique nuit après nuit, jusqu'à ce que vous reveniez à l'automatique."
+            : 'Manual control is on. A temperature set by hand, in the app or by voice ("set the bedroom to 19"), takes priority for the night. A preset replaces the automatic setting night after night until you go back to automatic.',
         modeLine(),
       );
       break;
@@ -444,18 +444,6 @@ export function answerQuestion(question: string, ctx: AssistantContext, opts: As
       );
       break;
     }
-    case 'humidity':
-      paragraphs.push(
-        tonight && tonight.humidityPct !== null
-          ? fr
-            ? `Votre thermostat indique ${Math.round(tonight.humidityPct)} % d'humidité. Quand l'air est humide, la même température paraît plus chaude; le plan garde alors la chambre un peu plus fraîche.`
-            : `Your thermostat reads ${Math.round(tonight.humidityPct)}% humidity. Humid air makes the same temperature feel warmer, so on humid nights the plan keeps the room a little cooler.`
-          : fr
-            ? "Votre thermostat ne mesure pas l'humidité; elle n'est donc pas prise en compte."
-            : 'Your thermostat does not measure humidity, so it is not taken into account.',
-        insight('humidNights'),
-      );
-      break;
     case 'health':
       paragraphs.push(
         fr

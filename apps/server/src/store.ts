@@ -17,6 +17,8 @@ export interface HouseholdRecord {
   tariffId: string;
   energy: { enabled: boolean; toleranceC: number };
   daySetpointC: number;
+  /** Whether people may set the temperature themselves. Off unless they turn it on. */
+  manualControl: boolean;
   peakEvent: 'morning' | 'evening' | null;
   /** Seed for the simulated weather and sleepers. */
   seed: number;
@@ -48,8 +50,7 @@ export interface RoomRecord {
   householdId: string;
   name: string;
   response: RoomResponse;
-  /** Last known conditions. Humidity is null unless the thermostat reports it. */
-  climate: { tempC: number; humidityPct: number | null };
+  climate: { tempC: number };
   /** The user's answer to the morning recommendation for a given date. */
   recommendation: { date: string; status: 'applied' | 'kept' } | null;
   /** A manual temperature set outside a running night; takes effect when the next one starts. */
@@ -63,7 +64,6 @@ export interface DeviceRecord {
   brand: string;
   name: string;
   equipment: Equipment;
-  reportsHumidity: boolean;
 }
 
 export type PresetRecord = PresetDto & { householdId: string };

@@ -84,13 +84,17 @@ function english(outcome: VoiceOutcome, units: Units): string {
     case 'resumed':
       return 'OK, back to your automatic schedule.';
     case 'status':
-      return `It's ${t(outcome.roomTempC)} in the room${outcome.humidityPct === undefined ? '' : ` with ${Math.round(outcome.humidityPct)}% humidity`}${englishTarget(outcome.targetC, outcome.mode, t)}.`;
+      return `It's ${t(outcome.roomTempC)} in the room${englishTarget(outcome.targetC, outcome.mode, t)}.`;
     case 'nightStarted':
       return `Good night, setting the room to ${t(outcome.targetC)} for the night.`;
     case 'nightEnded':
       return 'Good morning, the room is back on your usual settings.';
     case 'outOfRange':
       return `I can only set the temperature between ${t(outcome.minC)} and ${t(outcome.maxC)}.`;
+    case 'manualControlOff':
+      return 'Manual control is switched off, so I can\'t set the temperature by hand. You can turn it on in your settings.';
+    case 'feedbackNoted':
+      return 'Noted. I\'ll use that to improve your automatic schedule.';
     case 'notUnderstood':
       return "Sorry, I didn't catch that; you can say warmer, cooler, or a temperature.";
   }
@@ -131,13 +135,17 @@ function french(outcome: VoiceOutcome, units: Units): string {
     case 'resumed':
       return "D'accord, je reprends l'horaire automatique.";
     case 'status':
-      return `Il fait ${t(outcome.roomTempC)} dans la chambre${outcome.humidityPct === undefined ? '' : `, avec ${Math.round(outcome.humidityPct)}${NBSP}% d'humidité`}${frenchTarget(outcome.targetC, outcome.mode, t)}.`;
+      return `Il fait ${t(outcome.roomTempC)} dans la chambre${frenchTarget(outcome.targetC, outcome.mode, t)}.`;
     case 'nightStarted':
       return `Bonne nuit, je règle la chambre à ${t(outcome.targetC)} pour la nuit.`;
     case 'nightEnded':
       return 'Bonjour, la chambre revient à vos réglages habituels.';
     case 'outOfRange':
       return `Je ne peux régler la température qu'entre ${t(outcome.minC)} et ${t(outcome.maxC)}.`;
+    case 'manualControlOff':
+      return `Le contrôle manuel est désactivé : je ne peux pas régler la température à la main. Vous pouvez l'activer dans vos paramètres.`;
+    case 'feedbackNoted':
+      return `C'est noté. J'en tiendrai compte pour améliorer votre horaire automatique.`;
     case 'notUnderstood':
       return "Pardon, je n'ai pas compris; vous pouvez dire plus chaud, plus frais ou une température.";
   }
