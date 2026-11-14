@@ -3,9 +3,10 @@
 import type { EventDto, FeedbackKind, LiveUpdateDto, NightDetailDto, StateDto, TickDto } from '@tempcontrol/contracts';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
-import { PlanChart, SeriesChart } from '../charts';
-import { useApp, type Format } from '../store';
+import { Curve, Ring } from '../charts';
 import type { Key } from '../i18n';
+import { useApp, type Format } from '../store';
+import { Icon } from '../ui';
 
 export interface Live {
   /** True while a night is playing, and afterwards until the morning summary is closed. */
@@ -102,17 +103,13 @@ export function eventText(e: EventDto, names: Record<string, string>, t: (k: Key
     case 'live':
       return t(`event.live.${e.reason}`, { name, delta: fmt.delta(e.deltaC) });
     case 'manual':
-      return t(e.source === 'device' ? 'event.manual.device' : e.source === 'voice' ? 'event.manual.voice' : e.source === 'preset' ? 'event.manual.preset' : 'event.manual.app', {
-        name: name || t('event.someone'),
-        temp: fmt.temp(e.targetC),
-        preset: e.presetName ?? '',
-      });
+      return t('event.manual', { temp: fmt.temp(e.targetC) });
     case 'resume':
       return t('event.resume');
     case 'feeling':
       return t(e.feeling === 'tooHot' ? 'event.feeling.hot' : e.feeling === 'tooCold' ? 'event.feeling.cold' : 'event.feeling.right', { name });
     case 'energy':
-      return t(`event.energy.${e.change}`, { delta: fmt.delta(e.deltaC) }) + (e.peakEvent ? ` ${t('why.peak')}` : '');
+      return t('event.energy');
     case 'wake':
       return t('event.wake');
   }
@@ -123,195 +120,146 @@ const FEELING: Record<'en' | 'fr', { hot: string; cold: string }> = {
   fr: { hot: "j'ai chaud", cold: "j'ai froid" },
 };
 
-export function LivePanel({ live, state, names }: { live: Live; state: StateDto; names: Record<string, string> }) {
-  const { t, fmt, run, busy } = useApp();
+/** The night while it plays: one big number, two buttons. */
+export function LiveNight({ live, state }: { live: Live; state: StateDto }) {
+  const { me, t, fmt, run, busy } = useApp();
   const [said, setSaid] = useState<string | null>(null);
-  const [answered, setAnswered] = useState<Record<string, FeedbackKind>>({});
   const u = live.update;
-  if (!u?.session || !u.plan) return null;
-  const running = u.session.status === 'running';
+  if (!u?.session || !u.plan || !me) return <p className="empty">{t('loading')}</p>;
+  if (u.session.status !== 'running') return <Morning live={live} state={state} />;
   const ticks = live.ticks;
   const last = ticks[ticks.length - 1];
-  const room = state.rooms[0]!;
-  const events = [...u.events].sort((a, b) => b.t - a.t);
-  const watched = state.sleepers.filter((s) => ticks.some((k) => k.vitals[s.id]?.heartRate !== undefined));
-  const labels = ticks.map((k) => fmt.clock(k.t));
+  const names = Object.fromEntries(state.sleepers.map((s) => [s.id, s.name]));
+  const events = [...u.events].sort((a, b) => b.t - a.t).slice(0, 3);
+  const heart = last?.vitals[me.id]?.heartRate;
 
-  const feel = (sleeperId: string, kind: 'hot' | 'cold'): void => {
-    const sleeper = state.sleepers.find((s) => s.id === sleeperId)!;
-    void run(
-      async () => {
-        const res = await api.voice(FEELING[sleeper.locale][kind], sleeperId);
-        setSaid(`${sleeper.name}: ${res.reply}`);
-      },
-      { refresh: false },
-    );
-  };
-  const nudge = (delta: number): void => {
-    const base = last?.setpointC ?? u.plan!.segments[0]!.targetC;
-    void run(() => api.hold(room.id, Math.min(28, Math.max(12, base + delta)), null), { refresh: false });
+  const feel = (kind: 'hot' | 'cold'): void => {
+    void run(async () => setSaid((await api.voice(FEELING[me.locale][kind], me.id)).reply), { refresh: false });
   };
 
   return (
-    <section className="card live" aria-labelledby="live-title">
-      <header className="row between">
-        <h2 id="live-title">{running ? t('live.title') : t('live.finished')}</h2>
-        {running && last && (
-          <p className="clock" aria-live="off">
-            {fmt.clock(last.t)} · {fmt.temp(last.roomTempC)}
-            {last.setpointC !== null ? ` → ${fmt.temp(last.setpointC)}` : ''}
-          </p>
-        )}
-      </header>
-      <PlanChart plan={u.plan} ticks={ticks} names={names} />
+    <div className="stack">
+      <section className="hero night" aria-labelledby="live-label">
+        <div className="hero-top">
+          <span className="hero-mode">
+            {last ? fmt.clock(last.t) : fmt.clock(u.session.startMs)}
+            {last?.phase ? ` · ${t(`phase.${last.phase}`)}` : ''}
+          </span>
+          {heart !== undefined && (
+            <span className="hero-mode">
+              <Icon name="heart" size={14} /> {Math.round(heart)}
+            </span>
+          )}
+        </div>
+        <p className="hero-number">{last ? fmt.deg(last.roomTempC) : '–'}</p>
+        <p className="hero-label" id="live-label">
+          {last?.setpointC == null || Math.abs(last.setpointC - last.roomTempC) < 0.3 ? t('live.steady') : t(last.setpointC < last.roomTempC ? 'live.cooling' : 'live.warming')}
+        </p>
+        <Curve startMs={u.plan.startMs} endMs={u.plan.endMs} segments={u.plan.segments} ticks={ticks} height={96} aria={t('hero.curve')} deg={fmt.deg} clock={fmt.clock} />
+      </section>
 
-      {running ? (
-        <>
-          <div className="row wrap">
-            {state.sleepers.map((s) => (
-              <span key={s.id} className="row">
-                <button disabled={busy} onClick={() => feel(s.id, 'hot')}>
-                  {t('live.tooWarm', { name: s.name })}
-                </button>
-                <button disabled={busy} onClick={() => feel(s.id, 'cold')}>
-                  {t('live.tooCold', { name: s.name })}
-                </button>
-              </span>
-            ))}
-          </div>
-          {state.household.manualControl && (
-            <div className="row wrap">
-              <span className="muted">{t('live.manual')}</span>
-              <button disabled={busy} onClick={() => nudge(-0.5)}>
-                − {fmt.delta(0.5)}
-              </button>
-              <button disabled={busy} onClick={() => nudge(0.5)}>
-                + {fmt.delta(0.5)}
-              </button>
-              {u.hold && (
-                <button disabled={busy} onClick={() => void run(() => api.clearHold(room.id), { refresh: false })}>
-                  {t('manual.resume')}
-                </button>
-              )}
-            </div>
-          )}
-          <div className="row wrap">
-            <button className="primary" disabled={busy} onClick={() => void run(async () => live.replace(await api.liveFinish()), { refresh: false })}>
-              {t('live.skip')}
-            </button>
-            <button disabled={busy} onClick={() => void run(async () => live.replace(await api.liveWake()), { refresh: false })}>
-              {t('live.wake')}
-            </button>
-          </div>
-          {said && (
-            <p className="reply" role="status">
-              {said}
-            </p>
-          )}
-        </>
-      ) : (
-        <Morning live={live} state={state} answered={answered} setAnswered={setAnswered} />
+      <div className="pair">
+        <button className="big" disabled={busy} onClick={() => feel('hot')}>
+          <Icon name="sun" /> {t('live.tooWarm')}
+        </button>
+        <button className="big" disabled={busy} onClick={() => feel('cold')}>
+          <Icon name="snow" /> {t('live.tooCold')}
+        </button>
+      </div>
+      {said && (
+        <p className="reply" role="status">
+          {said}
+        </p>
       )}
 
-      <div className="grid-2">
-        <div>
-          <h3>{t('live.events')}</h3>
-          {events.length === 0 ? (
-            <p className="muted">{t('live.noEvents')}</p>
-          ) : (
-            <ol className="feed">
-              {events.map((e, i) => (
-                <li key={`${e.t}-${i}`}>
-                  <time>{fmt.clock(e.t)}</time> {eventText(e, names, t, fmt)}
-                </li>
-              ))}
-            </ol>
-          )}
-        </div>
-        <div>
-          <h3>{t('live.vitals')}</h3>
-          {watched.length === 0 ? (
-            <p className="muted">{t('live.noVitals')}</p>
-          ) : (
-            watched.map((s) => (
-              <div key={s.id}>
-                <p className="small muted">{t('live.heartRate', { name: s.name })}</p>
-                <SeriesChart
-                  height={120}
-                  labels={labels}
-                  aria={t('live.heartRate', { name: s.name })}
-                  format={(v) => `${Math.round(v)}`}
-                  series={[{ id: 'hr', label: t('live.bpm'), color: 'c1', values: ticks.map((k) => k.vitals[s.id]?.heartRate ?? null) }]}
-                />
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-    </section>
+      <section className="card">
+        <h2>{t('live.events')}</h2>
+        {events.length === 0 ? (
+          <p className="muted">{t('live.noEvents')}</p>
+        ) : (
+          <ol className="feed">
+            {events.map((e, i) => (
+              <li key={`${e.t}-${i}`}>
+                <time>{fmt.clock(e.t)}</time>
+                <span>{eventText(e, names, t, fmt)}</span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+
+      <button className="wide" disabled={busy} onClick={() => void run(async () => live.replace(await api.liveFinish()), { refresh: false })}>
+        {t('live.skip')}
+      </button>
+    </div>
   );
 }
 
-function Morning({
-  live,
-  state,
-  answered,
-  setAnswered,
-}: {
-  live: Live;
-  state: StateDto;
-  answered: Record<string, FeedbackKind>;
-  setAnswered: (next: Record<string, FeedbackKind>) => void;
-}) {
-  const { t, fmt, run, busy } = useApp();
+function Morning({ live, state }: { live: Live; state: StateDto }) {
+  const { me, t, fmt, run, busy } = useApp();
+  const [answered, setAnswered] = useState<FeedbackKind | null>(null);
   const night = live.night;
-  if (!night) return <p className="muted">{t('live.saving')}</p>;
-  const saved = night.baselineKWh - night.kWh;
+  if (!night || !me) return <p className="empty">{t('live.saving')}</p>;
+  const mine = night.sleepers.find((s) => s.sleeperId === me.id);
+  const others = night.sleepers.filter((s) => s.sleeperId !== me.id);
+  const savedCents = night.baselineCostCents - night.costCents;
+  const given = answered ?? mine?.feedback ?? null;
+
   return (
-    <div className="morning-summary">
-      <ul className="plain">
-        <li>{t('morning.room', { avg: fmt.temp(night.avgRoomTempC), target: fmt.temp(night.coreTargetC) })}</li>
-        <li>{t(saved >= 0 ? 'morning.energyLess' : 'morning.energyMore', { kwh: fmt.num(Math.abs(saved)), used: fmt.num(night.kWh) })}</li>
-        <li>{t('morning.adjustments', { live: night.liveAdjustments, manual: night.manualChanges })}</li>
-      </ul>
-      {night.sleepers.map((s) => {
-        const sleeper = state.sleepers.find((x) => x.id === s.sleeperId);
-        if (!sleeper) return null;
-        const given = answered[s.sleeperId] ?? s.feedback ?? null;
-        return (
-          <div key={s.sleeperId} className="row wrap">
-            <strong>
-              {sleeper.name}
-              {s.quality !== null ? ` · ${t('morning.score', { score: Math.round(s.quality) })}` : ''}
-            </strong>
-            {given ? (
-              <span className="muted">
-                {t(`feedback.${given}`)} · {t('morning.thanks')}
-              </span>
-            ) : (
-              <>
-                <span className="muted">{t('morning.ask')}</span>
-                {(['tooHot', 'justRight', 'tooCold'] as const).map((kind) => (
-                  <button
-                    key={kind}
-                    className="chip"
-                    disabled={busy}
-                    onClick={() =>
-                      void run(async () => {
-                        await api.feedback(night.id, s.sleeperId, kind);
-                        setAnswered({ ...answered, [s.sleeperId]: kind });
-                      })
-                    }
-                  >
-                    {t(`feedback.${kind}`)}
-                  </button>
-                ))}
-              </>
-            )}
-          </div>
-        );
-      })}
-      <button className="primary" onClick={live.close}>
+    <div className="stack">
+      <section className="card morning">
+        <h2>{t('morning.title', { name: me.name })}</h2>
+        <Ring value={mine?.quality ?? null} size={132} label={t('score')} />
+        <p className="muted">{t('score')}</p>
+        {others.map((o) => (
+          <p key={o.sleeperId} className="muted">
+            {state.sleepers.find((s) => s.id === o.sleeperId)?.name}: {o.quality === null ? '–' : Math.round(o.quality)}
+          </p>
+        ))}
+      </section>
+
+      <div className="tiles">
+        <div className="tile">
+          <span className="tile-label">{t('morning.room')}</span>
+          <span className="tile-number">{fmt.deg(night.avgRoomTempC)}</span>
+          <span className="tile-note">{t('morning.roomNote')}</span>
+        </div>
+        <div className="tile">
+          <span className="tile-label">{savedCents >= 0 ? t('tile.saved') : t('tile.extra')}</span>
+          <span className="tile-number">{fmt.money(savedCents)}</span>
+          <span className="tile-note">{t('morning.savedNote')}</span>
+        </div>
+      </div>
+
+      {mine && (
+        <section className="card">
+          <h2>{t('morning.ask')}</h2>
+          {given ? (
+            <p className="ok">
+              <Icon name="check" size={16} /> {t(`feedback.${given}`)} · {t('morning.thanks')}
+            </p>
+          ) : (
+            <div className="trio">
+              {(['tooHot', 'justRight', 'tooCold'] as const).map((kind) => (
+                <button
+                  key={kind}
+                  disabled={busy}
+                  onClick={() =>
+                    void run(async () => {
+                      await api.feedback(night.id, me.id, kind);
+                      setAnswered(kind);
+                    })
+                  }
+                >
+                  {t(`feedback.${kind}`)}
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      <button className="primary wide" onClick={live.close}>
         {t('morning.done')}
       </button>
     </div>

@@ -1,6 +1,6 @@
 /** App-wide state: what the server knows, plus the viewer's display choices. */
 
-import type { Locale, PlanDto, RecommendationDto, StateDto, Units } from '@tempcontrol/contracts';
+import type { Locale, PlanDto, RecommendationDto, SleeperDto, StateDto, Units } from '@tempcontrol/contracts';
 import { formatDelta, formatTemp } from '@tempcontrol/engine';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api, RequestFailed } from './api';
@@ -29,6 +29,8 @@ const remember = {
 export interface Format {
   temp: (c: number) => string;
   delta: (c: number) => string;
+  /** A bare temperature for big numbers: "18.5°". */
+  deg: (c: number) => string;
   clock: (ms: number) => string;
   /** "Fri 13 Nov" from a YYYY-MM-DD date. */
   day: (date: string) => string;
@@ -43,6 +45,9 @@ interface App {
   /** Set when the plan cannot be made (for instance no thermostat). */
   planError: string | null;
   loadError: string | null;
+  /** The person whose phone this is. Language and units are theirs. */
+  me: SleeperDto | null;
+  setMe: (id: string) => void;
   locale: Locale;
   units: Units;
   theme: Theme;
@@ -77,12 +82,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<App['toasts']>([]);
   const nextToast = useRef(1);
 
-  const [locale, setLocaleState] = useState<Locale>(() => {
-    const saved = remember.get('locale');
-    if (saved === 'en' || saved === 'fr') return saved;
-    return typeof navigator !== 'undefined' && navigator.language.toLowerCase().startsWith('fr') ? 'fr' : 'en';
-  });
-  const [units, setUnitsState] = useState<Units>(() => (remember.get('units') === 'F' ? 'F' : 'C'));
+  const browserLocale: Locale = typeof navigator !== 'undefined' && navigator.language.toLowerCase().startsWith('fr') ? 'fr' : 'en';
+  const [meId, setMeId] = useState<string | null>(() => remember.get('me'));
+  const me = state?.sleepers.find((s) => s.id === meId) ?? state?.sleepers.find((s) => s.locale === browserLocale) ?? state?.sleepers[0] ?? null;
+  const locale: Locale = me?.locale ?? browserLocale;
+  const units: Units = me?.units ?? 'C';
   const [theme, setThemeState] = useState<Theme>(() => {
     const saved = remember.get('theme');
     return saved === 'light' || saved === 'dark' ? saved : 'system';
@@ -154,6 +158,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return {
       temp: (c) => formatTemp(c, { locale, units }),
       delta: (c) => formatDelta(c, { locale, units }),
+      deg: (c) => {
+        if (units === 'F') return `${Math.round((c * 9) / 5 + 32)}°`;
+        const half = Math.round(c * 2) / 2;
+        const text = Number.isInteger(half) ? String(half) : half.toFixed(1);
+        return `${locale === 'fr' ? text.replace('.', ',') : text}°`;
+      },
       clock: (ms) => clock.format(ms),
       day: (date) => day.format(new Date(`${date}T12:00:00Z`)),
       num: (v, digits = 1) => new Intl.NumberFormat(tag, { maximumFractionDigits: digits, minimumFractionDigits: 0 }).format(v),
@@ -170,13 +180,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     locale,
     units,
     theme,
+    me,
+    setMe: (id) => {
+      remember.set('me', id);
+      setMeId(id);
+    },
     setLocale: (l) => {
-      remember.set('locale', l);
-      setLocaleState(l);
+      if (me) void run(() => api.patchSleeper(me.id, { locale: l }));
     },
     setUnits: (u) => {
-      remember.set('units', u);
-      setUnitsState(u);
+      if (me) void run(() => api.patchSleeper(me.id, { units: u }));
     },
     setTheme: (th) => {
       remember.set('theme', th);

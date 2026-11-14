@@ -6,7 +6,7 @@ A sleep-temperature platform. It reads each sleeper's wearable, learns the bedro
 
 It assumes a sleeper has two things and nothing more: a wearable, and one smart-controlled air conditioner or thermostat in the bedroom.
 
-This repository holds the working engine, the server and a web dashboard, which run the whole thing against **simulated** wearables and thermostats, so the product can be seen working before any device developer accounts are opened.
+This repository holds the working engine, the server and a phone-style web app, which run the whole thing against **simulated** wearables and thermostats, so the product can be seen working before any device developer accounts are opened.
 
 ## Run it
 
@@ -26,7 +26,9 @@ npm start
 
 Then open http://localhost:4000. The first start creates a demo household (a couple in Montréal) with ten nights of history.
 
-For development, `npm run dev` runs the server and the dashboard with live reload (dashboard on http://localhost:5173).
+The app is laid out like a phone app: four tabs (Tonight, Sleep, Ask, Settings), one big number per card, details behind a tap. It shows one person's view at a time, in that person's language and units; the round button at the top right switches person. The "Demo" button opens the tools that drive the simulation.
+
+For development, `npm run dev` runs the server and the app with live reload (app on http://localhost:5173).
 
 ```bash
 npm test
@@ -56,7 +58,7 @@ npm run typecheck
 | Weather | Simulated from rounded climate normals |
 | Electricity rates | Real published rates, but entered from search excerpts on 2026-11-13 because the utility sites could not be opened from the build environment. **Re-verify every figure before relying on it** (`packages/engine/src/tariffs.ts`) |
 | Energy savings shown | Computed inside the simulation, against "thermostat left at its daytime setting" |
-| Dashboard | Real: English and French, light and dark, desktop and phone widths |
+| The app's screens | Real: English and French, light and dark, phone-first. It is a web app, not yet an installable iOS, Android or watch app |
 
 Nothing here has been tested on real people. Sleep and comfort figures in the demo come from the simulation and are not evidence of real-world results.
 
@@ -66,7 +68,7 @@ Nothing here has been tested on real people. Sleep and comfort figures in the de
 packages/engine      The algorithm. Pure TypeScript, no dependencies, runs anywhere
 packages/contracts   Types of every API request and response
 apps/server          API, storage, control loop, simulated devices
-apps/web             Dashboard
+apps/web             The app (phone-style web app)
 ```
 
 A phone app (iOS and Android) would be a fifth package using the same engine types and the same API.
