@@ -47,7 +47,7 @@ npm run typecheck
 | Server, storage, API, control loop | Real |
 | Wearables and thermostats | **Simulated.** Choosing "Nest" or "Oura" creates a simulated device |
 | The sleepers | **Simulated people** with a hidden true preference the engine has to discover |
-| Weather, humidity | Simulated from rounded climate normals |
+| Weather | Simulated from rounded climate normals |
 | Electricity rates | Real published rates, but entered from search excerpts on 2026-11-13 because the utility sites could not be opened from the build environment. **Re-verify every figure before relying on it** (`packages/engine/src/tariffs.ts`) |
 | Energy savings shown | Computed inside the simulation, against "thermostat left at its daytime setting" |
 | Dashboard | Unfinished: only scaffolding exists in `apps/web` |
@@ -74,7 +74,7 @@ A phone app (iOS and Android) would be a fifth package using the same engine typ
 
 Before any data it starts from a typical-adult curve, so the first night already has a sensible plan. While the estimate is uncertain, nights alternate half a degree above and below it; that stops by itself once the estimate is tight. Old evidence fades, and evidence that contradicts the current belief makes it fade faster, so the model follows someone whose preference changes.
 
-**One plan per night.** Wind-down before bed, slightly warm while falling asleep, coolest in deep sleep, slightly warmer in late sleep, warmed before waking (more in winter). Tonight's plan is adjusted for humidity and, where the sleeper has opted in, cycle phase, hard training, alcohol and illness. Every adjustment is named so the app can explain it.
+**One plan per night.** Wind-down before bed, slightly warm while falling asleep, coolest in deep sleep, slightly warmer in late sleep, warmed before waking (more in winter). Where the sleeper has opted in, tonight's plan is adjusted for cycle phase, hard training, alcohol and illness. Every adjustment is named so the app can explain it.
 
 **One schedule per room.** Each sleeper's plan is blended into the schedule the thermostat follows. Everyone in bed has an equal say; someone still winding down, or already up, counts for half. Energy mode then shifts heating and cooling out of expensive hours, inside a comfort tolerance the user sets.
 
