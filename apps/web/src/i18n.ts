@@ -105,6 +105,8 @@ const DICT = {
   'event.feeling.hot': ['{name} said "too warm".', '{name} a dit « trop chaud ».'],
   'event.feeling.cold': ['{name} said "too cold".', '{name} a dit « trop froid ».'],
   'event.feeling.right': ['{name} said "just right".', '{name} a dit « parfait ».'],
+  'event.cooled': ['Cooled by {delta}.', 'Rafraîchi de {delta}.'],
+  'event.warmed': ['Warmed by {delta}.', 'Réchauffé de {delta}.'],
   'event.energy': ['Shifted to avoid pricey electricity.', "Décalé pour éviter l'électricité chère."],
   'event.wake': ['Woke up early.', 'Réveil plus tôt.'],
 

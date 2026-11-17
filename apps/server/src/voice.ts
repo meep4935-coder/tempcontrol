@@ -41,17 +41,24 @@ export async function handleVoice(store: Store, live: LiveManager, req: VoiceReq
   };
 
   let outcome: VoiceOutcome;
-  // Setting the temperature yourself is an option the household turns on. Saying how you feel always counts.
-  const manualIntents = ['setTemperature', 'adjust', 'activatePreset'];
-  if (!household.manualControl && manualIntents.includes(intent.type)) {
-    if (intent.type === 'adjust' && intent.feeling) {
-      runner?.feel(sleeper.id, intent.feeling);
-      outcome = { type: 'feedbackNoted' };
-    } else {
-      outcome = { type: 'manualControlOff' };
-    }
-    return { intent: parsed.intent, confidence: parsed.confidence, outcome, reply: formatVoiceReply(outcome, { locale: sleeper.locale, units: sleeper.units }) };
+  const reply = (o: VoiceOutcome): VoiceResponse => ({
+    intent: parsed.intent,
+    confidence: parsed.confidence,
+    outcome: o,
+    reply: formatVoiceReply(o, { locale: sleeper.locale, units: sleeper.units }),
+  });
+
+  // Saying how you feel is not manual control: during a night it always moves
+  // the room (1.5 degrees, up to 2), and the model learns from it.
+  if (intent.type === 'adjust' && intent.feeling) {
+    if (!runner) return reply({ type: 'feedbackNoted' });
+    const moved = runner.feel(sleeper.id, intent.feeling);
+    return reply(moved.targetC === null ? { type: 'feedbackNoted' } : { type: 'adjusted', targetC: moved.targetC, deltaC: moved.deltaC });
   }
+
+  // Setting the temperature yourself is an option the household turns on.
+  const manualIntents = ['setTemperature', 'adjust', 'activatePreset'];
+  if (!household.manualControl && manualIntents.includes(intent.type)) return reply({ type: 'manualControlOff' });
   switch (intent.type) {
     case 'setTemperature': {
       if (intent.valueC < HARD_LIMITS.minC || intent.valueC > HARD_LIMITS.maxC) {
@@ -63,7 +70,6 @@ export async function handleVoice(store: Store, live: LiveManager, req: VoiceReq
     }
     case 'adjust': {
       const base = runner?.currentTargetC() ?? room.pendingHold?.targetC ?? household.daySetpointC;
-      if (intent.feeling && runner) runner.feel(sleeper.id, intent.feeling);
       const targetC = hold(base + intent.deltaC, 'voice');
       outcome = { type: 'adjusted', targetC, deltaC: targetC - base };
       break;

@@ -323,8 +323,8 @@ export type EventDto =
   | { t: number; kind: 'manual'; source: HoldDto['source']; targetC: number; sleeperId?: string; presetName?: string }
   /** A manual temperature ended and the plan resumed. */
   | { t: number; kind: 'resume' }
-  /** Someone said how they felt (voice or app) during the night. */
-  | { t: number; kind: 'feeling'; feeling: FeedbackKind; sleeperId: string }
+  /** Someone said how they felt (voice or app) during the night, and how much the room moved for it. */
+  | { t: number; kind: 'feeling'; feeling: FeedbackKind; sleeperId: string; deltaC?: number }
   /** The plan was shifted around electricity prices. */
   | { t: number; kind: 'energy'; change: EnergyChange['kind']; deltaC: number; peakEvent: boolean }
   /** The night was ended early ("good morning"). */

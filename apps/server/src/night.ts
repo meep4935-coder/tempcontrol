@@ -26,6 +26,8 @@ import {
   getTariff,
   hashString,
   holdActive,
+  comfortCorrection,
+  HARD_LIMITS,
   hvacDirection,
   INFERRED_SIGNAL_NOISE_C,
   jetLagSchedule,
@@ -342,6 +344,8 @@ export class NightRunner {
   private readonly events: EventDto[] = [];
   private readonly preferences = new Map<string, PreferenceEvent[]>();
   private readonly nudged = new Set<string>();
+  /** Correction from people saying they are too warm or too cold, in degrees. */
+  private comfortC = 0;
   private readonly pendingEnergy: EnergyChange[];
   private lastObservation: Observation | null = null;
   private endedEarlyAt: number | null = null;
@@ -389,7 +393,7 @@ export class NightRunner {
   /** What the thermostat is being asked for at this moment. */
   currentTargetC(): number | null {
     const t = this.env.now();
-    return decideSetpoint({ t, plan: this.setup.roomPlan, hold: this.hold, liveOffsetC: liveOffset(this.live, t) }).targetC;
+    return decideSetpoint({ t, plan: this.setup.roomPlan, hold: this.hold, liveOffsetC: this.offsetAt(t) }).targetC;
   }
 
   lastReading(): { roomTempC: number } | null {
@@ -439,12 +443,32 @@ export class NightRunner {
     this.events.push({ t: this.env.now(), kind: 'resume' });
   }
 
-  /** Someone said how they feel right now. */
-  feel(sleeperId: string, feeling: 'tooHot' | 'tooCold'): void {
+  /** Live nudges plus what people asked for, kept within reach of the plan. */
+  private offsetAt(t: number): number {
+    return Math.max(-3, Math.min(3, liveOffset(this.live, t) + this.comfortC));
+  }
+
+  /**
+   * Someone said they are too warm or too cold. The room moves straight away
+   * (see `comfortCorrection`), and the model learns from it as well.
+   * Returns the change to the setpoint and the new setpoint.
+   */
+  feel(sleeperId: string, feeling: 'tooHot' | 'tooCold'): { deltaC: number; targetC: number | null } {
     const t = this.env.now();
     const roomTempC = this.lastObservation?.roomTempC ?? this.setup.household.daySetpointC;
     this.preferences.get(sleeperId)?.push({ kind: feeling, t, tempC: roomTempC });
-    this.events.push({ t, kind: 'feeling', feeling, sleeperId });
+    const before = this.currentTargetC();
+    if (holdActive(this.hold, t, this.setup.roomPlan)) {
+      // A temperature set by hand moves the same way.
+      const step = comfortCorrection(0, feeling);
+      this.hold = { ...this.hold, targetC: Math.max(HARD_LIMITS.minC, Math.min(HARD_LIMITS.maxC, this.hold.targetC + step)) };
+    } else {
+      this.comfortC = comfortCorrection(this.comfortC, feeling);
+    }
+    const after = this.currentTargetC();
+    const deltaC = before !== null && after !== null ? after - before : 0;
+    this.events.push({ t, kind: 'feeling', feeling, sleeperId, deltaC });
+    return { deltaC, targetC: after };
   }
 
   /** End the night now ("good morning"). */
@@ -466,7 +490,7 @@ export class NightRunner {
       if (t < roomPlan.endMs) this.events.push({ t, kind: 'resume' });
     }
 
-    const decision = decideSetpoint({ t, plan: roomPlan, hold: this.hold, liveOffsetC: liveOffset(this.live, t) });
+    const decision = decideSetpoint({ t, plan: roomPlan, hold: this.hold, liveOffsetC: this.offsetAt(t) });
     while (this.pendingEnergy.length > 0 && this.pendingEnergy[0]!.startMs <= t) {
       const change = this.pendingEnergy.shift()!;
       this.events.push({ t: change.startMs, kind: 'energy', change: change.kind, deltaC: change.deltaC, peakEvent: change.peakEvent });

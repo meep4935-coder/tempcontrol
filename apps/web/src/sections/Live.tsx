@@ -106,8 +106,11 @@ export function eventText(e: EventDto, names: Record<string, string>, t: (k: Key
       return t('event.manual', { temp: fmt.temp(e.targetC) });
     case 'resume':
       return t('event.resume');
-    case 'feeling':
-      return t(e.feeling === 'tooHot' ? 'event.feeling.hot' : e.feeling === 'tooCold' ? 'event.feeling.cold' : 'event.feeling.right', { name });
+    case 'feeling': {
+      const said = t(e.feeling === 'tooHot' ? 'event.feeling.hot' : e.feeling === 'tooCold' ? 'event.feeling.cold' : 'event.feeling.right', { name });
+      if (!e.deltaC) return said;
+      return `${said} ${t(e.deltaC < 0 ? 'event.cooled' : 'event.warmed', { delta: fmt.delta(e.deltaC) })}`;
+    }
     case 'energy':
       return t('event.energy');
     case 'wake':

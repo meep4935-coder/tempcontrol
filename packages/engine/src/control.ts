@@ -75,3 +75,25 @@ export function decideSetpoint(input: ControlInput): ControlDecision {
   }
   return { targetC: null, source: 'idle', liveOffsetC: 0 };
 }
+
+/**
+ * "Too warm" / "too cold" during the night. Saying how you feel is not manual
+ * control: it always moves the room, whatever the household's settings.
+ *
+ * The first complaint moves the room 1.5 degrees; another in the same direction
+ * adds half a degree, up to 2 in all. A complaint the other way after a
+ * correction (one partner too warm, the other then too cold) steps back by one
+ * degree, so the two meet in the middle instead of see-sawing.
+ */
+export const COMFORT = { firstC: 1.5, againC: 0.5, maxC: 2, backC: 1 } as const;
+
+/** The room's comfort correction after one more complaint, in degrees (negative is cooler). */
+export function comfortCorrection(currentC: number, feeling: 'tooHot' | 'tooCold'): number {
+  const dir = feeling === 'tooHot' ? -1 : 1;
+  const along = currentC * dir; // > 0: already corrected the way this person wants
+  let next: number;
+  if (along < 0) next = currentC + dir * COMFORT.backC;
+  else if (along === 0) next = dir * COMFORT.firstC;
+  else next = currentC + dir * COMFORT.againC;
+  return Math.max(-COMFORT.maxC, Math.min(COMFORT.maxC, Math.round(next * 2) / 2));
+}

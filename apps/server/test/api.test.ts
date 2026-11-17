@@ -483,7 +483,7 @@ describe('manual control', () => {
     expect((await call<RecommendationDto>('GET', `/api/rooms/${room.id}/recommendation`)).body.mode).toBe('auto');
   });
 
-  it('answers voice requests to set the temperature with an explanation, but still takes feelings as feedback', async () => {
+  it('answers voice requests to set the temperature with an explanation, but still takes feelings', async () => {
     await start('couple', 0, TODAY, false);
     const [camille, alex] = (await getState()).sleepers;
     const set = await call<VoiceResponse>('POST', '/api/voice', { text: 'set the bedroom to 21', sleeperId: alex!.id });
@@ -728,7 +728,7 @@ describe('voice', () => {
     expect((await call('POST', '/api/voice', { text: '', sleeperId: alex.id })).status).toBe(400);
   });
 
-  it('starts the night on "good night", takes "I\'m hot" as feedback, and ends it on "good morning"', async () => {
+  it('starts the night on "good night", cools the room on "I\'m hot", and ends it on "good morning"', async () => {
     await start();
     const state = await getState();
     const camille = state.sleepers[0]!;
@@ -738,10 +738,18 @@ describe('voice', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 1200));
     const hot = await say("j'ai chaud", camille.id);
-    expect(hot.outcome).toMatchObject({ type: 'adjusted', deltaC: -1 });
+    expect(hot.outcome).toMatchObject({ type: 'adjusted' });
+    const first = (hot.outcome as { deltaC: number }).deltaC;
+    expect(first).toBeLessThanOrEqual(-1);
+    expect(first).toBeGreaterThanOrEqual(-1.5);
+    const hotter = await say("j'ai chaud", camille.id);
+    expect(hotter.outcome).toMatchObject({ type: 'adjusted' });
     const live = (await call<LiveUpdateDto>('GET', '/api/live?since=0')).body;
-    expect(live.events.some((e) => e.kind === 'feeling' && e.feeling === 'tooHot' && e.sleeperId === camille.id)).toBe(true);
-    expect(live.hold).toMatchObject({ source: 'voice' });
+    expect(live.events.some((e) => e.kind === 'feeling' && e.feeling === 'tooHot' && e.sleeperId === camille.id && (e.deltaC ?? 0) < 0)).toBe(true);
+    // Saying how you feel is not a manual temperature: the plan keeps running, shifted.
+    expect(live.hold).toBeNull();
+    const cold = await say("j'ai froid", camille.id);
+    expect((cold.outcome as { deltaC: number }).deltaC).toBeGreaterThan(0);
 
     const morning = await say('bonjour, je suis réveillée', camille.id);
     expect(morning.outcome).toEqual({ type: 'nightEnded' });
